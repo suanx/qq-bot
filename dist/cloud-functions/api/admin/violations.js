@@ -3,8 +3,8 @@
  * GET  ?id=&search=&groupOpenid=&rule=&action=&page=&pageSize=
  * POST 新建  PUT ?id= 更新  DELETE ?id= 删除
  */
-import { handleCollection } from '../../../src/admin/crud.js';
-import { COLLECTIONS } from '../../../src/repo.js';
+import { handleCollection } from '../../src/admin/crud.js';
+import { COLLECTIONS } from '../../src/repo.js';
 
 export async function onRequest(context) {
   return handleCollection(context, COLLECTIONS.VIOLATIONS, {

@@ -3,8 +3,8 @@
  * GET  ?id=&search=&action=&actor=&page=&pageSize=
  * DELETE ?id= 删除（仅 owner）
  */
-import { handleCollection } from '../../../src/admin/crud.js';
-import { COLLECTIONS } from '../../../src/repo.js';
+import { handleCollection } from '../../src/admin/crud.js';
+import { COLLECTIONS } from '../../src/repo.js';
 
 export async function onRequest(context) {
   return handleCollection(context, COLLECTIONS.LOGS, {

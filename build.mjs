@@ -19,18 +19,18 @@ const REQUIRED = [
   'package.json',
   'dev-server.mjs',
   'admin/index.html',
-  'functions/api/qq/webhook.js',
-  'functions/api/qq/health.js',
-  'functions/api/admin/login.js',
-  'functions/api/admin/logout.js',
-  'functions/api/admin/me.js',
-  'functions/api/admin/overview.js',
-  'functions/api/admin/groups.js',
-  'functions/api/admin/members.js',
-  'functions/api/admin/violations.js',
-  'functions/api/admin/rules.js',
-  'functions/api/admin/admins.js',
-  'functions/api/admin/logs.js',
+  'cloud-functions/api/qq/webhook.js',
+  'cloud-functions/api/qq/health.js',
+  'cloud-functions/api/admin/login.js',
+  'cloud-functions/api/admin/logout.js',
+  'cloud-functions/api/admin/me.js',
+  'cloud-functions/api/admin/overview.js',
+  'cloud-functions/api/admin/groups.js',
+  'cloud-functions/api/admin/members.js',
+  'cloud-functions/api/admin/violations.js',
+  'cloud-functions/api/admin/rules.js',
+  'cloud-functions/api/admin/admins.js',
+  'cloud-functions/api/admin/logs.js',
   'src/core.js',
   'src/handlers.js',
   'src/verify.js',
@@ -88,6 +88,24 @@ try {
 }
 if (/([1-9]\d*) 失败/.test(testLine)) bail('存在失败用例');
 
+/**
+ * Node Functions 构建只打包 cloud-functions/ 目录，
+ * 跨目录引用需内联：复制 src/ 进 cloud-functions/src/ 并改写相对导入
+ * （../../../src/x -> ../../src/x，因 src 现位于 cloud-functions/src）
+ */
+function rewriteImports(dir) {
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) { rewriteImports(p); continue; }
+    if (!p.endsWith('.js') && !p.endsWith('.mjs')) continue;
+    const code = readFileSync(p, 'utf8');
+    const next = code
+      .split("'../../../src/").join("'../../src/")
+      .split('"../../../src/').join('"../../src/');
+    if (next !== code) writeFileSync(p, next);
+  }
+}
+
 console.log('\n=== 3. 生成 dist/ 部署目录 ===');
 // 幂等覆盖写入：不整目录删除，避免受限于运行环境的删除保护
 mkdirSync(DIST, { recursive: true });
@@ -95,8 +113,8 @@ mkdirSync(DIST, { recursive: true });
 // .env 仅用于本地 dev-server，绝不进部署产物：
 // 产物含 MOCK=1 会使机器人假运行，含口令则等于泄露
 const ENTRIES = [
-  'functions', 'src', 'admin', 'docs',
-  'package.json', 'dev-server.mjs', 'README.md', 'edgeone.json',
+  'cloud-functions', 'src', 'admin', 'docs',
+  'package.json', 'dev-server.mjs', 'README.md',
 ];
 
 let entries = 0;
@@ -119,7 +137,16 @@ if (existsSync(pkgPath)) {
   console.log('  已精简 dist/package.json（scripts 仅保留 start）');
 }
 
-// 线上是「静态站 + Edge Functions」模式，dev-server 的 / 跳转不生效，
+// Node Functions（cloud-functions/）运行于 Node 20，node:crypto 原生支持 Ed25519，
+// 边缘 V8 的 WebCrypto 不支持（实测 importKey 抛 Param Invalid），故整体迁移
+const CF_DIR = join(DIST, 'cloud-functions');
+if (existsSync(CF_DIR) && existsSync(join(ROOT, 'src'))) {
+  copyDir(join(ROOT, 'src'), join(CF_DIR, 'src'));
+  rewriteImports(CF_DIR);
+  console.log('  已内联 src/ -> cloud-functions/src/ 并改写导入路径');
+}
+
+// 线上是「静态站 + Node Functions」模式，dev-server 的 / 跳转不生效，
 // 生成静态入口页把根路径导到管理后台
 writeFileSync(
   join(DIST, 'index.html'),

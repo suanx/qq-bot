@@ -1,10 +1,10 @@
 /**
  * POST /api/admin/logout  清除会话 Cookie
  */
-import { loadConfig } from '../../../src/config.js';
-import { createKV } from '../../../src/kv.js';
-import { createRepo } from '../../../src/repo.js';
-import { audit, json, clearCookie } from '../../../src/admin/api.js';
+import { loadConfig } from '../../src/config.js';
+import { createKV } from '../../src/kv.js';
+import { createRepo } from '../../src/repo.js';
+import { audit, json, clearCookie } from '../../src/admin/api.js';
 
 export async function onRequest(context) {
   const { request, env } = context;

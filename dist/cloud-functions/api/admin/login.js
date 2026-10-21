@@ -5,11 +5,11 @@
  *   2) 后台账号：admins 集合里带口令的记录 -> role 取记录上的角色
  * 通过则下发 HMAC 签名的会话 Cookie
  */
-import { loadConfig } from '../../../src/config.js';
-import { createKV } from '../../../src/kv.js';
-import { createRepo, COLLECTIONS } from '../../../src/repo.js';
-import { verifyPassword, signSession, checkPassword } from '../../../src/admin/auth.js';
-import { json, fail, audit, sessionCookie } from '../../../src/admin/api.js';
+import { loadConfig } from '../../src/config.js';
+import { createKV } from '../../src/kv.js';
+import { createRepo, COLLECTIONS } from '../../src/repo.js';
+import { verifyPassword, signSession, checkPassword } from '../../src/admin/auth.js';
+import { json, fail, audit, sessionCookie } from '../../src/admin/api.js';
 
 async function resolveUser(cfg, repo, username, password) {
   // 1) 环境变量超管

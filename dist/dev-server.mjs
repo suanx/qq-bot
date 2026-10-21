@@ -41,18 +41,18 @@ const env = { ...fileEnv, ...process.env };
 
 /** 路由表：URL 路径 -> 函数模块 */
 const ROUTES = new Map([
-  ['/api/qq/health', () => import('./functions/api/qq/health.js')],
-  ['/api/qq/webhook', () => import('./functions/api/qq/webhook.js')],
-  ['/api/admin/login', () => import('./functions/api/admin/login.js')],
-  ['/api/admin/logout', () => import('./functions/api/admin/logout.js')],
-  ['/api/admin/me', () => import('./functions/api/admin/me.js')],
-  ['/api/admin/overview', () => import('./functions/api/admin/overview.js')],
-  ['/api/admin/groups', () => import('./functions/api/admin/groups.js')],
-  ['/api/admin/members', () => import('./functions/api/admin/members.js')],
-  ['/api/admin/violations', () => import('./functions/api/admin/violations.js')],
-  ['/api/admin/rules', () => import('./functions/api/admin/rules.js')],
-  ['/api/admin/admins', () => import('./functions/api/admin/admins.js')],
-  ['/api/admin/logs', () => import('./functions/api/admin/logs.js')],
+  ['/api/qq/health', () => import('./cloud-functions/api/qq/health.js')],
+  ['/api/qq/webhook', () => import('./cloud-functions/api/qq/webhook.js')],
+  ['/api/admin/login', () => import('./cloud-functions/api/admin/login.js')],
+  ['/api/admin/logout', () => import('./cloud-functions/api/admin/logout.js')],
+  ['/api/admin/me', () => import('./cloud-functions/api/admin/me.js')],
+  ['/api/admin/overview', () => import('./cloud-functions/api/admin/overview.js')],
+  ['/api/admin/groups', () => import('./cloud-functions/api/admin/groups.js')],
+  ['/api/admin/members', () => import('./cloud-functions/api/admin/members.js')],
+  ['/api/admin/violations', () => import('./cloud-functions/api/admin/violations.js')],
+  ['/api/admin/rules', () => import('./cloud-functions/api/admin/rules.js')],
+  ['/api/admin/admins', () => import('./cloud-functions/api/admin/admins.js')],
+  ['/api/admin/logs', () => import('./cloud-functions/api/admin/logs.js')],
 ]);
 
 const MIME = {

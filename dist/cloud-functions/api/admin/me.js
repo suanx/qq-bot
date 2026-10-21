@@ -1,8 +1,8 @@
 /**
  * GET /api/admin/me  当前登录用户与权限
  */
-import { guard, ok, fail } from '../../../src/admin/api.js';
-import { COLLECTIONS } from '../../../src/repo.js';
+import { guard, ok, fail } from '../../src/admin/api.js';
+import { COLLECTIONS } from '../../src/repo.js';
 
 const WRITABLE = {
   owner: ['groups', 'members', 'violations', 'rules', 'admins'],

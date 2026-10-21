@@ -13,7 +13,7 @@ import { handleMessage, fmtDuration, parseDuration, extractMentions, stripMentio
 import { handleRequest } from '../src/core.js';
 import { memoryDriver } from '../src/store.js';
 
-const crypto = globalThis.crypto;
+const ncrypto = (await import('node:crypto')).default;
 const enc = new TextEncoder();
 
 /* ---------------- 极简测试框架 ---------------- */
@@ -94,28 +94,28 @@ await t('AI 限流默认开启', () => {
 console.log('\n[验签 verify]');
 let kp;
 await t('生成密钥对成功', async () => {
-  kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+  kp = ncrypto.generateKeyPairSync('ed25519');
   assert.ok(kp.privateKey);
 });
 await t('loadPublicKey 支持 base64 原始公钥', async () => {
-  const raw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+  const raw = kp.publicKey.export({ format: 'der', type: 'spki' }).slice(-32);
   const key = await loadPublicKey(b64(raw));
   assert.ok(key);
 });
 await t('loadPublicKey 支持 PEM', async () => {
-  const spki = await crypto.subtle.exportKey('spki', kp.publicKey);
+  const spki = kp.publicKey.export({ format: 'der', type: 'spki' });
   const pem = `-----BEGIN PUBLIC KEY-----\n${b64(spki)}\n-----END PUBLIC KEY-----`;
   const key = await loadPublicKey(pem);
   assert.ok(key);
 });
 await t('公钥长度异常时抛错', async () => {
-  await assert.rejects(() => loadPublicKey(b64(new Uint8Array(10))));
+  assert.throws(() => loadPublicKey(b64(new Uint8Array(10))));
 });
 await t('验签通过 / 篡改失败', async () => {
-  const key = await loadPublicKey(b64(new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey))));
+  const key = await loadPublicKey(b64(kp.publicKey.export({ format: 'der', type: 'spki' }).slice(-32)));
   const ts = String(Math.floor(Date.now() / 1000));
   const body = '{"op":0}';
-  const sig = await crypto.subtle.sign({ name: 'Ed25519' }, kp.privateKey, enc.encode(ts + body));
+  const sig = ncrypto.sign(null, Buffer.from(ts + body, 'utf8'), kp.privateKey);
   const sigB64 = b64(sig);
   assert.equal(await verifyEd25519(key, sigB64, ts, body), true);
   assert.equal(await verifyEd25519(key, sigB64, ts, body + 'x'), false);
@@ -127,7 +127,7 @@ await t('时间戳容差', () => {
   assert.equal(checkTimestamp('abc', 300), false);
 });
 await t('verifyRequest：缺签名 / 过期 / 无公钥 / 正常', async () => {
-  const key = await loadPublicKey(b64(new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey))));
+  const key = await loadPublicKey(b64(kp.publicKey.export({ format: 'der', type: 'spki' }).slice(-32)));
   const mk = (hdrs) => new Request('https://x/api/qq/webhook', { method: 'POST', headers: hdrs, body: '{"op":0}' });
   const r1 = await verifyRequest(mk({}), '{"op":0}', key);
   assert.equal(r1.ok, false);
@@ -141,7 +141,7 @@ await t('verifyRequest：缺签名 / 过期 / 无公钥 / 正常', async () => {
   assert.equal(r3.reason, 'public key not configured');
 
   const ts = String(Math.floor(Date.now() / 1000));
-  const sig = b64(await crypto.subtle.sign({ name: 'Ed25519' }, kp.privateKey, enc.encode(ts + '{"op":0}')));
+  const sig = b64(ncrypto.sign(null, Buffer.from(ts + '{"op":0}', 'utf8'), kp.privateKey));
   const r4 = await verifyRequest(mk({ 'x-signature-ed25519': sig, 'x-signature-timestamp': ts }), '{"op":0}', key);
   assert.equal(r4.ok, true);
 });
@@ -359,7 +359,7 @@ await t('op=13 回显 challenge', async () => {
   const key = await loadPublicKeyFor();
   const body = JSON.stringify({ op: 13, d: { plainChallenge: 'xyz' } });
   const ts = String(Math.floor(Date.now() / 1000));
-  const sig = b64(await crypto.subtle.sign({ name: 'Ed25519' }, kp.privateKey, enc.encode(ts + body)));
+  const sig = b64(ncrypto.sign(null, Buffer.from(ts + body, 'utf8'), kp.privateKey));
   const res = await handleRequest(new Request('https://x/api/qq/webhook', {
     method: 'POST',
     headers: { 'x-signature-ed25519': sig, 'x-signature-timestamp': ts },
@@ -371,7 +371,7 @@ await t('op=13 回显 challenge', async () => {
 
 /* 辅助：导出 base64 原始公钥 */
 async function loadPublicKeyFor() {
-  return b64(new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey)));
+  return b64(kp.publicKey.export({ format: 'der', type: 'spki' }).slice(-32));
 }
 
 console.log('\n[AI 对话与成本护栏]');

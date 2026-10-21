@@ -1,7 +1,0 @@
-{
-  "$schema": "./edgeone.schema.json",
-  "edge-functions": {
-    "included_files": ["src/**/*"],
-    "included_files_base_path": "."
-  }
-}

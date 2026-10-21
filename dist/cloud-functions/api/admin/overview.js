@@ -1,9 +1,9 @@
 /**
  * GET /api/admin/overview  数据概览仪表盘
  */
-import { guard, ok } from '../../../src/admin/api.js';
-import { COLLECTIONS } from '../../../src/repo.js';
-import { readStats } from '../../../src/records.js';
+import { guard, ok } from '../../src/admin/api.js';
+import { COLLECTIONS } from '../../src/repo.js';
+import { readStats } from '../../src/records.js';
 
 const byTimeDesc = (a, b) =>
   String(b.createdAt || b.lastActiveAt || '').localeCompare(String(a.createdAt || a.lastActiveAt || ''));
