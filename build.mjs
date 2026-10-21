@@ -94,7 +94,7 @@ mkdirSync(DIST, { recursive: true });
 
 const ENTRIES = [
   'functions', 'src', 'admin', 'docs',
-  'package.json', 'dev-server.mjs', 'README.md', '.env',
+  'package.json', 'dev-server.mjs', 'README.md', '.env', 'edgeone.json',
 ];
 
 let entries = 0;
@@ -106,6 +106,25 @@ ENTRIES.forEach((name) => {
   else writeFileSync(dst, readFileSync(src));
   entries += 1;
 });
+
+// 部署产物内没有 build.mjs 与 test/，若保留这些脚本，
+// 平台构建阶段执行 npm run build 会因文件缺失而失败
+const pkgPath = join(DIST, 'package.json');
+if (existsSync(pkgPath)) {
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+  pkg.scripts = { start: 'node dev-server.mjs' };
+  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+  console.log('  已精简 dist/package.json（scripts 仅保留 start）');
+}
+
+// 线上是「静态站 + Edge Functions」模式，dev-server 的 / 跳转不生效，
+// 生成静态入口页把根路径导到管理后台
+writeFileSync(
+  join(DIST, 'index.html'),
+  '<!doctype html><meta charset="utf-8"><title>QQ Bot Admin</title>'
+    + '<script>location.replace("/admin/index.html")</script>',
+);
+console.log('  已生成 dist/index.html（根路径跳转后台）');
 
 console.log('  目录: dist/');
 console.log('  条目: ' + entries);
