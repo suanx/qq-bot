@@ -92,9 +92,11 @@ console.log('\n=== 3. 生成 dist/ 部署目录 ===');
 // 幂等覆盖写入：不整目录删除，避免受限于运行环境的删除保护
 mkdirSync(DIST, { recursive: true });
 
+// .env 仅用于本地 dev-server，绝不进部署产物：
+// 产物含 MOCK=1 会使机器人假运行，含口令则等于泄露
 const ENTRIES = [
   'functions', 'src', 'admin', 'docs',
-  'package.json', 'dev-server.mjs', 'README.md', '.env', 'edgeone.json',
+  'package.json', 'dev-server.mjs', 'README.md', 'edgeone.json',
 ];
 
 let entries = 0;
