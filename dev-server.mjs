@@ -1,14 +1,18 @@
 /**
- * 本地开发服务器（零依赖）
- *   :8788  ->  按 functions/ 目录结构转发到对应函数；非 API 路径按静态文件返回
- * 用法： npm run dev
+ * 开发 / 部署服务器（零依赖）
+ *   :8788  ->  按 functions/ 目录结构转发到对应函数；仅 /admin/* 提供静态资源
+ *
+ * 部署契约：必须监听 PORT 环境变量，并绑定 0.0.0.0
+ * 用法： npm run dev   /   npm start
  */
 import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { extname, join, resolve, sep } from 'node:path';
 
 const PORT = Number(process.env.PORT) || 8788;
+const HOST = process.env.HOST || '0.0.0.0';
 const ROOT = resolve('.');
+const STATIC_ROOT = join(ROOT, 'admin');
 
 /** 极简 .env 解析（KEY=VALUE，忽略 # 注释） */
 function loadDotEnv(text) {
@@ -55,13 +59,26 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
 };
 
+/**
+ * 静态资源：仅服务 /admin/ 目录
+ * 屏蔽隐藏文件（.env 等）与目录穿越，避免源码/机密泄露
+ */
 async function serveStatic(pathname) {
-  let rel = pathname === '/' ? '/admin/index.html' : pathname;
+  let rel = decodeURIComponent(pathname);
+  if (rel === '/' || rel === '') rel = '/index.html';
+  if (!rel.startsWith('/admin/')) return null;
+
+  let target = rel.slice('/admin/'.length);
+  if (target === '' || target.endsWith('/')) target += 'index.html';   // 目录 -> index.html
+  if (target.startsWith('.') || target.includes('..') || target.includes('\0')) return null;
+
+  const abs = resolve(join(STATIC_ROOT, target));
+  if (abs !== STATIC_ROOT && !abs.startsWith(STATIC_ROOT + sep)) return null;
+
   try {
-    const abs = resolve(join(ROOT, normalize(rel)));
-    if (abs !== ROOT && !abs.startsWith(ROOT + sep)) return null; // 防目录穿越
     const st = await stat(abs);
     const file = st.isDirectory() ? join(abs, 'index.html') : abs;
     const buf = await readFile(file);
@@ -74,9 +91,8 @@ async function serveStatic(pathname) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const url = new URL(req.url, `http://${HOST}:${PORT}`);
 
-  // 收集请求体（GET/HEAD 无体）
   const chunks = [];
   for await (const c of req) chunks.push(c);
   const bodyBuf = Buffer.concat(chunks);
@@ -92,8 +108,13 @@ const server = http.createServer(async (req, res) => {
         headers: req.headers,
         body: noBody || bodyBuf.length === 0 ? undefined : bodyBuf,
       });
-      const ctx = { waitUntil: (p) => { Promise.resolve(p).catch(() => {}); } };
+      // 与边缘运行时一致：提供 waitUntil 延长事件生命周期
+      const waited = [];
+      const ctx = { waitUntil: (p) => waited.push(Promise.resolve(p)) };
       response = await mod.onRequest({ request, env, ctx });
+      await Promise.allSettled(waited);
+    } else if (url.pathname === '/') {
+      response = new Response(null, { status: 302, headers: { Location: '/admin/index.html' } });
     } else {
       response = await serveStatic(url.pathname);
     }
@@ -111,8 +132,9 @@ const server = http.createServer(async (req, res) => {
   res.end(Buffer.from(await response.arrayBuffer()));
 });
 
-server.listen(PORT, () => {
-  console.log(`dev server: http://localhost:${PORT}`);
-  console.log(`  健康检查: http://localhost:${PORT}/api/qq/health`);
-  console.log(`  管理后台: http://localhost:${PORT}/admin/`);
+server.listen(PORT, HOST, () => {
+  console.log(`server listening on http://${HOST}:${PORT}`);
+  console.log('  健康检查: /api/qq/health');
+  console.log('  管理后台: /admin/index.html');
+  console.log('  Webhook : /api/qq/webhook');
 });

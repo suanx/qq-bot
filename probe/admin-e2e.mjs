@@ -4,6 +4,9 @@
  * 用法： node probe/admin-e2e.mjs
  */
 const BASE = process.env.BASE || 'http://localhost:8788';
+/** 后台口令：优先取环境变量，便于本地/云端用不同凭据 */
+const PASSWORD = process.env.ADMIN_PASSWORD || 'devpass';
+const USERNAME = process.env.ADMIN_USERNAME || 'admin';
 
 let cookie = '';
 let fails = 0;
@@ -40,7 +43,7 @@ console.log('\n=== 2. 错误口令被拒 ===');
 {
   const { res, data } = await call('/api/admin/login', {
     method: 'POST',
-    body: JSON.stringify({ username: 'admin', password: 'wrong' }),
+    body: JSON.stringify({ username: USERNAME, password: 'wrong' }),
   });
   check('登录返回 401', res.status === 401, `实际 ${res.status}`);
   check('返回错误信息', !!data.error, JSON.stringify(data));
@@ -50,7 +53,7 @@ console.log('\n=== 3. 正确口令登录 ===');
 {
   const { res, data } = await call('/api/admin/login', {
     method: 'POST',
-    body: JSON.stringify({ username: 'admin', password: 'devpass' }),
+    body: JSON.stringify({ username: USERNAME, password: PASSWORD }),
   });
   check('登录返回 200', res.status === 200, `实际 ${res.status}`);
   check('角色为 owner', data.role === 'owner', JSON.stringify(data));

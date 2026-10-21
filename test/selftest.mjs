@@ -182,7 +182,7 @@ await t('封顶生效', () => {
   assert.equal(decideAction(20, cfgEmpty).muteSeconds, cfgEmpty.AD_MUTE_MAX_SECONDS);
 });
 await t('违规计数 记录/读取/清零', async () => {
-  const kv = createKV({});
+  const kv = await createKV({});
   assert.equal(await recordViolation(kv, 'G1', 'U1'), 1);
   assert.equal(await recordViolation(kv, 'G1', 'U1'), 2);
   assert.equal(await getViolations(kv, 'G1', 'U1'), 2);
@@ -193,7 +193,7 @@ await t('违规计数 记录/读取/清零', async () => {
 /* ================= 存储层 ================= */
 console.log('\n[存储层 repo]');
 await t('CRUD 正常', async () => {
-  const repo = createRepo(createKV({}));
+  const repo = createRepo(await createKV({}));
   const a = await repo.create('t', { name: 'A' });
   assert.ok(a.id && a.createdAt);
   const b = await repo.update('t', a.id, { name: 'B' });
@@ -204,17 +204,17 @@ await t('CRUD 正常', async () => {
   assert.equal(await repo.get('t', a.id), null);
 });
 await t('更新不存在的记录返回 null', async () => {
-  const repo = createRepo(createKV({}));
+  const repo = createRepo(await createKV({}));
   assert.equal(await repo.update('t', 'nope', { x: 1 }), null);
 });
 await t('主键不可被覆盖', async () => {
-  const repo = createRepo(createKV({}));
+  const repo = createRepo(await createKV({}));
   const a = await repo.create('t', { name: 'A' });
   const b = await repo.update('t', a.id, { id: 'HACKED', name: 'B' });
   assert.equal(b.id, a.id);
 });
 await t('搜索 + 筛选', async () => {
-  const repo = createRepo(createKV({}));
+  const repo = createRepo(await createKV({}));
   await repo.create('t', { name: '张三', status: 'active' });
   await repo.create('t', { name: '李四', status: 'muted' });
   const r = await repo.query('t', { search: '张', searchFields: ['name'], filters: { status: 'active' } });
@@ -222,7 +222,7 @@ await t('搜索 + 筛选', async () => {
   assert.equal(r.items[0].name, '张三');
 });
 await t('排序 + 分页', async () => {
-  const repo = createRepo(createKV({}));
+  const repo = createRepo(await createKV({}));
   for (let i = 1; i <= 5; i++) await repo.create('t', { name: `n${i}`, seq: i });
   const p1 = await repo.query('t', { sortKey: 'seq', sortDir: 'desc', page: 1, pageSize: 2 });
   assert.equal(p1.total, 5);

@@ -9,7 +9,7 @@ import { audit, json, clearCookie } from '../../../src/admin/api.js';
 export async function onRequest(context) {
   const { request, env } = context;
   const cfg = loadConfig(env);
-  const kv = createKV(env);
+  const kv = await createKV(env);
   const repo = createRepo(kv);
 
   // 尽力记录：即使会话已失效也不影响退出

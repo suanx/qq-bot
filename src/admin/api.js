@@ -30,10 +30,10 @@ export function canWrite(user, collection) {
   return list.includes(collection);
 }
 
-/** 建立后台上下文 */
-export function context(rawEnv) {
+/** 建立后台上下文（异步：驱动解析可能动态加载可选 SDK） */
+export async function context(rawEnv) {
   const cfg = loadConfig(rawEnv);
-  const kv = createKV(rawEnv);
+  const kv = await createKV(rawEnv);
   const repo = createRepo(kv);
   return { cfg, kv, repo };
 }
@@ -49,7 +49,7 @@ export async function currentUser(request, cfg) {
  * 返回 { cfg, kv, repo, user } 或 { error: Response }
  */
 export async function guard(request, rawEnv, { collection = null, write = false } = {}) {
-  const ctx = context(rawEnv);
+  const ctx = await context(rawEnv);
   const user = await currentUser(request, ctx.cfg);
   if (!user) return { error: fail('未登录或会话已过期', 401) };
   if (write && collection && !canWrite(user, collection)) {

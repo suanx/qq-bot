@@ -6,8 +6,6 @@
  * DELETE ?id= 删除
  * 说明：口令以加盐哈希保存，查询接口不返回 salt/passwordHash。
  */
-import { loadConfig } from '../../../src/config.js';
-import { createKV } from '../../../src/kv.js';
 import { createRepo, COLLECTIONS } from '../../../src/repo.js';
 import { guard, paging, pickFilters, audit, ok, fail } from '../../../src/admin/api.js';
 import { makeCredentials } from '../../../src/admin/auth.js';

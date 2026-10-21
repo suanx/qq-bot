@@ -288,7 +288,8 @@ async function handleAIChat(ctx, cfg, kv) {
 /** 处理一条消息事件，返回回复计划或 null（不回复） */
 export async function handleMessage(evt, rawEnv) {
   const cfg = loadConfig(rawEnv);
-  const kv = createKV(rawEnv);
+  // 驱动解析是异步的（可能动态加载官方 Blob SDK）
+  const kv = await createKV(rawEnv);
   const type = evt.t || evt.type || '';
   const d = evt.d || {};
   const author = d.author || {};

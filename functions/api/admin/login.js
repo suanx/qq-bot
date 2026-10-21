@@ -31,7 +31,7 @@ export async function onRequest(context) {
   if (request.method !== 'POST') return fail('method not allowed', 405);
 
   const cfg = loadConfig(env);
-  const kv = createKV(env);
+  const kv = await createKV(env);
   const repo = createRepo(kv);
 
   let body;
