@@ -6,7 +6,7 @@
  * 用法： npm run build
  */
 import {
-  existsSync, mkdirSync, readdirSync, statSync, rmSync, readFileSync, writeFileSync,
+  existsSync, mkdirSync, readdirSync, statSync, readFileSync, writeFileSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -89,7 +89,7 @@ try {
 if (/([1-9]\d*) 失败/.test(testLine)) bail('存在失败用例');
 
 console.log('\n=== 3. 生成 dist/ 部署目录 ===');
-rmSync(DIST, { recursive: true, force: true });
+// 幂等覆盖写入：不整目录删除，避免受限于运行环境的删除保护
 mkdirSync(DIST, { recursive: true });
 
 const ENTRIES = [

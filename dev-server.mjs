@@ -32,10 +32,12 @@ function loadDotEnv(text) {
   return out;
 }
 
-let env = { ...process.env };
+// 平台注入的环境变量优先级最高，本地 .env 仅作为缺省值
+let fileEnv = {};
 try {
-  env = { ...env, ...loadDotEnv(await readFile(join(ROOT, '.env'), 'utf8')) };
+  fileEnv = loadDotEnv(await readFile(join(ROOT, '.env'), 'utf8'));
 } catch { /* 无 .env 时忽略 */ }
+const env = { ...fileEnv, ...process.env };
 
 /** 路由表：URL 路径 -> 函数模块 */
 const ROUTES = new Map([
