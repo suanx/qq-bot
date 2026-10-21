@@ -14,13 +14,20 @@ const json = (obj, status = 200) =>
   });
 
 /** 处理一条事件：拿到回复计划后异步发送 */
-async function dispatchEvent(evt, cfg) {
+async function dispatchEvent(evt, rawEnv) {
   try {
-    const plan = await handleMessage(evt, cfg);
+    // 统一把原始 env 透传下去，由业务层自行 loadConfig（避免重复加载）
+    const plan = await handleMessage(evt, rawEnv);
     if (!plan || !plan.content) return;
     await replyMessage(
-      { targetId: plan.targetId, content: plan.content, msgId: plan.msgId, msgSeq: 1, chatType: plan.chatType },
-      cfg,
+      {
+        targetId: plan.targetId,
+        content: plan.content,
+        msgId: plan.msgId,
+        msgSeq: plan.msgSeq || 1, // 同一 msg_id 多次回复时需递增
+        chatType: plan.chatType,
+      },
+      loadConfig(rawEnv),
     );
   } catch (e) {
     console.error('处理事件失败:', e.message);
@@ -45,11 +52,12 @@ export async function handleRequest(request, env = {}, ctx = {}) {
   // ---------- Ed25519 验签 ----------
   let publicKey = null;
   try {
-    publicKey = loadPublicKey(cfg.CALLBACK_PUBLIC_KEY);
+    // 修复：loadPublicKey / verifyRequest 现为异步（Web Crypto），必须 await
+    publicKey = await loadPublicKey(cfg.CALLBACK_PUBLIC_KEY);
   } catch (e) {
     console.error('公钥加载失败:', e.message);
   }
-  const verified = verifyRequest(request, rawBody, publicKey, cfg.SIGN_TOLERANCE);
+  const verified = await verifyRequest(request, rawBody, publicKey, cfg.SIGN_TOLERANCE);
   if (!verified.ok) {
     console.warn('拒绝未验签请求:', verified.reason);
     return json({ error: 'unauthorized', reason: verified.reason }, 401);
@@ -67,7 +75,7 @@ export async function handleRequest(request, env = {}, ctx = {}) {
 
   const events = Array.isArray(payload) ? payload : [payload];
   const jobs = events
-    .map((evt) => dispatchEvent(evt, cfg))
+    .map((evt) => dispatchEvent(evt, env))
     .map((p) => p.catch((e) => console.error('事件异常:', e)));
 
   // 先回 200 防超时重推，消息异步发送

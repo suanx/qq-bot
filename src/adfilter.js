@@ -1,6 +1,6 @@
 /**
  * 广告/垃圾信息检测
- * 内置规则 + 环境变量自定义关键词/正则
+ * 内置规则 + 环境变量自定义关键词/正则 + 管理后台动态规则
  * 返回 { hit, rule, matched }
  */
 
@@ -22,18 +22,18 @@ const BUILTIN = [
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-export function checkAd(text, cfg) {
+export function checkAd(text, cfg, extra = {}) {
   const t = String(text || '').trim();
   if (!t) return { hit: false };
 
-  // 用户自定义关键词（子串匹配）
-  for (const kw of cfg.AD_KEYWORDS) {
+  // 自定义关键词（后台动态规则优先，其次环境变量）
+  for (const kw of [...(extra.keywords || []), ...cfg.AD_KEYWORDS]) {
     if (t.toLowerCase().includes(kw.toLowerCase())) {
       return { hit: true, rule: 'keyword', matched: kw };
     }
   }
-  // 用户自定义正则
-  for (const p of cfg.AD_REGEX) {
+  // 自定义正则（后台动态规则优先，其次环境变量）
+  for (const p of [...(extra.regex || []), ...cfg.AD_REGEX]) {
     try {
       const m = t.match(new RegExp(p, 'i'));
       if (m) return { hit: true, rule: 'regex', matched: m[0] };

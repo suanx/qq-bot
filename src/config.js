@@ -16,15 +16,20 @@ export function loadConfig(env = {}) {
     MOCK: bool(env.MOCK, false),
 
     // 大模型（OpenAI 兼容接口：deepseek / moonshot / 智谱 / openai 均可）
-    AI_BASE_URL: (env.AI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
+    AI_BASE_URL: (env.AI_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/+$/, ''),
     AI_API_KEY: env.AI_API_KEY || '',
-    AI_MODEL: env.AI_MODEL || 'gpt-4o-mini',
+    AI_MODEL: env.AI_MODEL || 'deepseek-chat',
     AI_SYSTEM_PROMPT: env.AI_SYSTEM_PROMPT ||
       '你是一个友好的QQ群机器人助手，回答简洁准确，避免敏感内容。',
     AI_TIMEOUT_MS: num(env.AI_TIMEOUT_MS, 30000),
     AI_MAX_CONTEXT: num(env.AI_MAX_CONTEXT, 10),   // 保留最近 N 条上下文
     AI_MAX_TOKENS: num(env.AI_MAX_TOKENS, 800),
     AI_ENABLED: bool(env.AI_ENABLED, true),
+
+    // AI 调用限流（防刷屏导致费用失控）
+    AI_RATE_LIMIT_ENABLED: bool(env.AI_RATE_LIMIT_ENABLED, true),
+    AI_RATE_LIMIT_PER_MIN: num(env.AI_RATE_LIMIT_PER_MIN, 10), // 每会话每 60 秒上限
+    AI_DAILY_LIMIT: num(env.AI_DAILY_LIMIT, 0),             // 每日 AI 调用总上限，0=不限
 
     // 广告过滤
     AD_FILTER_ENABLED: bool(env.AD_FILTER_ENABLED, true), // 全局总开关
@@ -33,7 +38,7 @@ export function loadConfig(env = {}) {
     AD_MUTE_THRESHOLD: num(env.AD_MUTE_THRESHOLD, 3),     // 第 N 次违规才禁言
     AD_MUTE_MAX_SECONDS: num(env.AD_MUTE_MAX_SECONDS, 86400),
     AD_KEYWORDS: list(env.AD_KEYWORDS),                   // 额外关键词
-    AD_REGEX: list(env.AD_REGEX, ),                       // 额外正则（分号分隔）
+    AD_REGEX: list(env.AD_REGEX),                          // 额外正则
 
     // 退群拉黑（依赖内邀接口，失败自动忽略）
     LEAVE_BLACKLIST_ENABLED: bool(env.LEAVE_BLACKLIST_ENABLED, false),
@@ -43,5 +48,17 @@ export function loadConfig(env = {}) {
 
     // 管理指令默认禁言上限（秒）
     ADMIN_MAX_MUTE_SECONDS: num(env.ADMIN_MAX_MUTE_SECONDS, 30 * 86400),
+
+    // ---- 管理后台 ----
+    ADMIN_USERNAME: env.ADMIN_USERNAME || 'admin',
+    /** 未设置时后台登录接口将明确拒绝，避免出现无鉴权入口 */
+    ADMIN_PASSWORD: env.ADMIN_PASSWORD || '',
+    /** 会话签名密钥，缺省回落到 APP_SECRET */
+    ADMIN_SESSION_SECRET: env.ADMIN_SESSION_SECRET || env.APP_SECRET || '',
+    ADMIN_SESSION_TTL: num(env.ADMIN_SESSION_TTL, 12 * 3600),
+    /** 会话 Cookie 是否仅 HTTPS；本地 http 调试可设 0 */
+    ADMIN_COOKIE_SECURE: env.ADMIN_COOKIE_SECURE ?? '1',
   };
 }
+
+export default { loadConfig };

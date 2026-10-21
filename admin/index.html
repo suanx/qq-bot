@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QQ 机器人管理后台</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --border: #e3e6ec;
+    --text: #1f2430; --muted: #6b7280; --brand: #2563eb;
+    --brand-soft: #eaf1ff; --ok: #16a34a; --danger: #dc2626;
+    --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.1);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  button {
+    font: inherit; cursor: pointer; border: 1px solid var(--border);
+    background: #fff; color: var(--text); border-radius: 6px; padding: 6px 12px;
+  }
+  button:hover { background: #f3f4f6; }
+  button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+  button.primary:hover { background: #1d4ed8; }
+  button.danger { color: var(--danger); border-color: #f3c6c6; }
+  button.danger:hover { background: #fdf2f2; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  input, select, textarea {
+    font: inherit; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: #fff; color: var(--text); width: 100%;
+  }
+  table { border-collapse: collapse; width: 100%; background: var(--panel); }
+  th, td { border-bottom: 1px solid var(--border); padding: 10px 12px; text-align: left; vertical-align: middle; }
+  th { background: #fafbfc; font-weight: 600; color: var(--muted); font-size: 12px; }
+  tbody tr:hover { background: #fafbff; }
+
+  .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .login-card { width: 360px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 28px; box-shadow: var(--shadow); }
+  .login-card h1 { margin: 0 0 4px; font-size: 20px; }
+  .login-card p.sub { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+
+  header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .spacer { flex: 1; }
+  .who { color: var(--muted); font-size: 13px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--brand-soft); color: var(--brand); }
+  nav.tabs { display: flex; gap: 4px; padding: 12px 24px 0; flex-wrap: wrap; }
+  nav.tabs button { border-color: transparent; background: transparent; color: var(--muted); }
+  nav.tabs button.active { background: var(--panel); border-color: var(--border); color: var(--text); font-weight: 600; }
+  main { padding: 20px 24px 48px; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; box-shadow: var(--shadow); }
+  .card .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .card .value { font-size: 24px; font-weight: 650; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+  .panel > .head { padding: 14px 16px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  .toolbar { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .toolbar input { width: 260px; }
+  .toolbar select { width: auto; min-width: 150px; }
+  .pager { display: flex; gap: 10px; align-items: center; padding: 12px 16px; }
+  .pager select { width: auto; }
+  .empty { padding: 28px; text-align: center; color: var(--muted); }
+  .msg { padding: 10px 16px; }
+  .msg.error { background: #fdf2f2; color: var(--danger); }
+  .msg.ok { background: #f0fdf4; color: var(--ok); }
+  .hint { color: var(--muted); font-size: 12px; }
+
+  .bars { padding: 16px; display: grid; gap: 10px; }
+  .bar-row { display: grid; grid-template-columns: 150px 1fr 56px; gap: 10px; align-items: center; }
+  .bar-track { background: #f0f2f5; border-radius: 6px; height: 10px; overflow: hidden; }
+  .bar-fill { background: var(--brand); height: 100%; }
+  .bar-num { text-align: right; color: var(--muted); font-size: 12px; }
+
+  .mask { position: fixed; inset: 0; background: rgba(16,24,40,.45); display: grid; place-items: center; padding: 24px; z-index: 50; }
+  .modal { background: var(--panel); border-radius: 12px; width: 460px; max-width: 100%; box-shadow: var(--shadow); }
+  .modal .head { padding: 16px 20px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  .modal .body { padding: 18px 20px; display: grid; gap: 14px; max-height: 62vh; overflow: auto; }
+  .modal .foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+</style>
+</head>
+<body>
+
+<!-- ============ 登录 ============ -->
+<div id="loginView" class="login-wrap">
+  <form class="login-card" id="loginForm">
+    <h1>QQ 机器人管理后台</h1>
+    <p class="sub">请使用管理员账号登录</p>
+    <div class="field">
+      <label for="username">用户名</label>
+      <input id="username" name="username" autocomplete="username" required>
+    </div>
+    <div class="field">
+      <label for="password">口令</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    <div id="loginError" class="msg error" hidden></div>
+    <button class="primary" type="submit" id="loginBtn" style="width:100%">登录</button>
+  </form>
+</div>
+
+<!-- ============ 主应用 ============ -->
+<div id="appView" hidden>
+  <header>
+    <h1>QQ 机器人管理后台</h1>
+    <span id="storageBadge" class="badge"></span>
+    <span class="spacer"></span>
+    <span class="who" id="who"></span>
+    <button id="logoutBtn">退出</button>
+  </header>
+  <nav class="tabs" id="tabs"></nav>
+  <main>
+    <section id="view-overview" class="view" hidden></section>
+    <section id="view-groups" class="view" hidden></section>
+    <section id="view-members" class="view" hidden></section>
+    <section id="view-violations" class="view" hidden></section>
+    <section id="view-rules" class="view" hidden></section>
+    <section id="view-admins" class="view" hidden></section>
+    <section id="view-logs" class="view" hidden></section>
+  </main>
+</div>
+
+<script>
+/* ================= 工具 ================= */
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[c]));
+
+function fmtTime(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  const bj = new Date(d.getTime() + 8 * 3600 * 1000);
+  const p2 = (n) => String(n).padStart(2, '0');
+  return bj.getUTCFullYear() + '-' + p2(bj.getUTCMonth() + 1) + '-' + p2(bj.getUTCDate())
+    + ' ' + p2(bj.getUTCHours()) + ':' + p2(bj.getUTCMinutes());
+}
+function short(s) { const t = String(s || ''); return t.length > 10 ? t.slice(0, 8) + '…' : t; }
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
+  });
+  let data = {};
+  try { data = await res.json(); } catch { /* 空响应 */ }
+  return { res, data };
+}
+
+/* ================= 视图定义 ================= */
+const VIEWS = [
+  { key: 'overview', label: '数据概览' },
+  { key: 'groups', label: '群管理' },
+  { key: 'members', label: '成员管理' },
+  { key: 'violations', label: '违规记录' },
+  { key: 'rules', label: '广告规则' },
+  { key: 'admins', label: '管理员与权限' },
+  { key: 'logs', label: '操作日志' },
+];
+
+const SCHEMA = {
+  groups: {
+    title: '群管理',
+    allowClientId: true,
+    placeholder: '搜索群 openid / 名称',
+    columns: ['id', 'name', 'status', 'aiEnabled', 'adFilterEnabled', 'lastActiveAt'],
+    filters: ['status'],
+    fields: [
+      { key: 'id', label: '群 openid', type: 'text', primary: true, required: true },
+      { key: 'name', label: '群名称', type: 'text', required: true },
+      { key: 'status', label: '状态', type: 'select', options: ['active', 'disabled'] },
+      { key: 'aiEnabled', label: 'AI 对话', type: 'bool' },
+      { key: 'adFilterEnabled', label: '广告过滤', type: 'bool' },
+      { key: 'memberCount', label: '成员数', type: 'number' },
+    ],
+  },
+  members: {
+    title: '成员管理',
+    allowClientId: true,
+    placeholder: '搜索成员 openid / 昵称 / 群',
+    columns: ['memberOpenid', 'nickname', 'groupOpenid', 'violations', 'status', 'mutedUntil', 'lastActiveAt'],
+    filters: ['groupOpenid', 'status'],
+    fields: [
+      { key: 'id', label: '记录 ID（群:成员）', type: 'text', primary: true, required: true },
+      { key: 'groupOpenid', label: '群 openid', type: 'text', required: true },
+      { key: 'memberOpenid', label: '成员 openid', type: 'text', required: true },
+      { key: 'nickname', label: '昵称', type: 'text' },
+      { key: 'violations', label: '违规次数', type: 'number' },
+      {
+        key: 'status',
+        label: '状态',
+        type: 'select',
+        options: ['normal', 'muted', 'blacklisted', 'kicked'],
+      },
+      { key: 'mutedUntil', label: '禁言到期(ISO)', type: 'text' },
+    ],
+  },
+  violations: {
+    title: '违规记录',
+    placeholder: '搜索成员 openid / 规则 / 命中内容',
+    columns: ['createdAt', 'groupOpenid', 'memberOpenid', 'rule', 'matched', 'action', 'count'],
+    filters: ['groupOpenid', 'rule', 'action'],
+    fields: [
+      { key: 'groupOpenid', label: '群 openid', type: 'text' },
+      { key: 'memberOpenid', label: '成员 openid', type: 'text' },
+      { key: 'rule', label: '命中规则', type: 'text' },
+      { key: 'matched', label: '命中内容', type: 'text' },
+      { key: 'action', label: '处置', type: 'select', options: ['warn', 'delete', 'delete_mute'] },
+      { key: 'muteSeconds', label: '禁言秒数', type: 'number' },
+      { key: 'count', label: '第几次', type: 'number' },
+      { key: 'content', label: '原文', type: 'textarea' },
+    ],
+  },
+  rules: {
+    title: '广告规则',
+    placeholder: '搜索关键词 / 正则 / 备注',
+    columns: ['type', 'value', 'rule', 'note', 'enabled', 'createdAt'],
+    filters: ['type', 'enabled'],
+    fields: [
+      { key: 'type', label: '类型', type: 'select', options: ['keyword', 'regex'], required: true },
+      { key: 'value', label: '规则内容', type: 'text', required: true },
+      { key: 'rule', label: '归属规则名', type: 'text' },
+      { key: 'note', label: '备注', type: 'text' },
+      { key: 'enabled', label: '启用', type: 'bool' },
+    ],
+  },
+  admins: {
+    title: '管理员与权限',
+    placeholder: '搜索 openid / 名称 / 备注',
+    columns: ['openid', 'name', 'role', 'status', 'note', 'createdAt'],
+    filters: ['role', 'status'],
+    fields: [
+      { key: 'openid', label: 'QQ openid', type: 'text', primary: true, required: true },
+      { key: 'name', label: '名称', type: 'text' },
+      { key: 'role', label: '角色', type: 'select', options: ['owner', 'admin', 'viewer'], required: true },
+      { key: 'status', label: '状态', type: 'select', options: ['enabled', 'disabled'], required: true },
+      { key: 'note', label: '备注', type: 'text' },
+    ],
+  },
+  logs: {
+    title: '操作日志',
+    placeholder: '搜索操作人 / 动作 / 目标',
+    columns: ['createdAt', 'actor', 'actorRole', 'action', 'target', 'detail'],
+    filters: ['action'],
+    readonly: true,
+    fields: [],
+  },
+};
+
+const state = {};
+VIEWS.forEach((v) => {
+  if (v.key !== 'overview') {
+    state[v.key] = { page: 1, pageSize: 20, search: '', filters: {}, sortKey: 'createdAt', sortDir: 'desc' };
+  }
+});
+
+let currentUser = null;
+
+/* ================= 视图切换 ================= */
+function renderTabs() {
+  $('#tabs').innerHTML = VIEWS
+    .map((v) => '<button data-view="' + v.key + '">' + esc(v.label) + '</button>')
+    .join('');
+  $$('#tabs button').forEach((b) => {
+    b.addEventListener('click', () => switchView(b.dataset.view));
+  });
+}
+
+function switchView(key) {
+  $$('.view').forEach((s) => { s.hidden = s.id !== 'view-' + key; });
+  $$('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.view === key));
+  if (key === 'overview') renderOverview();
+  else renderCollection(key);
+}
+
+/* ================= 概览 ================= */
+async function renderOverview() {
+  let d = {};
+  try {
+    const r = await api('/api/admin/overview');
+    d = r.data;
+  } catch (e) {
+    $('#view-overview').innerHTML = '<div class="panel"><div class="head">数据概览</div>'
+      + '<div class="empty">加载失败：' + esc(e.message) + '</div></div>';
+    return;
+  }
+
+  const c = d.counts || {};
+  const t = d.today || {};
+  const cards = [
+    ['今日消息', t.messages ?? 0],
+    ['今日 AI 调用', t.ai ?? 0],
+    ['今日违规', t.violations ?? 0],
+    ['群 / 成员', (c.groups ?? 0) + ' / ' + (c.members ?? 0)],
+    ['违规记录', c.violations ?? 0],
+    ['广告规则', c.rules ?? 0],
+    ['操作日志', c.logs ?? 0],
+  ];
+
+  const badge = $('#storageBadge');
+  const persistent = !!(d.storage && d.storage.persistent);
+  badge.textContent = persistent ? '存储：KV（持久）' : '存储：内存（临时）';
+  badge.style.background = persistent ? '#ecfdf5' : '#fff7ed';
+  badge.style.color = persistent ? '#16a34a' : '#c2410c';
+
+  const top = d.topRules || [];
+  const max = Math.max(1, ...top.map((x) => x.count));
+
+  const bars = top.length
+    ? top.map((x) => '<div class="bar-row"><div>' + esc(x.rule) + '</div>'
+        + '<div class="bar-track"><div class="bar-fill" style="width:'
+        + ((x.count / max) * 100).toFixed(1) + '%"></div></div>'
+        + '<div class="bar-num">' + esc(x.count) + '</div></div>').join('')
+    : '<div class="empty">暂无违规数据</div>';
+
+  const recent = d.recentViolations || [];
+  const recentHtml = recent.length
+    ? '<table><thead><tr><th>时间</th><th>群</th><th>成员</th><th>规则</th>'
+      + '<th>命中</th><th>处置</th></tr></thead><tbody>'
+      + recent.map((v) => '<tr><td>' + esc(fmtTime(v.createdAt)) + '</td><td>'
+        + esc(short(v.groupOpenid)) + '</td><td>' + esc(short(v.memberOpenid))
+        + '</td><td>' + esc(v.rule) + '</td><td>' + esc(v.matched)
+        + '</td><td>' + esc(v.action) + '</td></tr>').join('')
+      + '</tbody></table>'
+    : '<div class="empty">暂无违规记录</div>';
+
+  $('#view-overview').innerHTML = `
+    <div class="cards">
+      ${cards.map(([label, value]) => `<div class="card">
+        <div class="label">${esc(label)}</div>
+        <div class="value">${esc(value)}</div>
+      </div>`).join('')}
+    </div>
+    <div class="panel" style="margin-bottom:18px">
+      <div class="head">违规规则分布（Top 6）</div>
+      <div class="bars">${bars}</div>
+    </div>
+    <div class="panel">
+      <div class="head">最近违规记录</div>
+      ${recentHtml}
+    </div>`;
+}
+
+/* ================= 集合视图 ================= */
+async function renderCollection(name) {
+  const schema = SCHEMA[name];
+  const st = state[name];
+  const qs = new URLSearchParams({
+    page: String(st.page),
+    pageSize: String(st.pageSize),
+    sortKey: st.sortKey,
+    sortDir: st.sortDir,
+  });
+  if (st.search) qs.set('search', st.search);
+  Object.entries(st.filters).forEach(([k, v]) => { if (v) qs.set(k, v); });
+
+  let d = {};
+  try {
+    const r = await api('/api/admin/' + name + '?' + qs.toString());
+    d = r.data;
+  } catch (e) {
+    $('#view-' + name).innerHTML = '<div class="panel"><div class="head">' + esc(schema.title)
+      + '</div><div class="empty">加载失败：' + esc(e.message) + '</div></div>';
+    return;
+  }
+
+  const items = d.items || [];
+  const total = d.total ?? 0;
+  const totalPages = d.totalPages ?? 1;
+
+  const filterSelects = (schema.filters || []).map((key) => `<select data-filter="${key}">
+      <option value="">${esc(key)}（全部）</option>
+    </select>`).join('');
+
+  const headHtml = (schema.columns || []).map((c) => '<th>' + esc(c) + '</th>').join('');
+
+  const bodyHtml = items.map((it) => '<tr>'
+    + (schema.columns || []).map((c) => {
+      let v = it[c];
+      if (c === 'createdAt' || c === 'lastActiveAt' || c === 'mutedUntil') v = fmtTime(v);
+      if (c === 'aiEnabled' || c === 'adFilterEnabled' || c === 'enabled') {
+        return '<td>' + (v ? '<span class="pill active">开</span>' : '<span class="pill muted">关</span>') + '</td>';
+      }
+      if (c === 'status') {
+        const ok = v === 'normal' || v === 'active' || v === 'enabled';
+        const cls = ok ? 'active' : (v === 'disabled' ? 'disabled' : 'muted');
+        return '<td><span class="pill ' + cls + '">' + esc(v ?? '-') + '</span></td>';
+      }
+      if (c === 'content' || c === 'detail' || c === 'target') {
+        const t = String(v ?? '');
+        const shown = t.length > 40 ? t.slice(0, 40) + '…' : t;
+        return '<td title="' + esc(t) + '">' + (esc(shown) || '-') + '</td>';
+      }
+      return '<td>' + esc(v ?? '-') + '</td>';
+    }).join('')
+    + '<td style="white-space:nowrap">'
+    + (schema.readonly ? '' : '<button data-edit="' + esc(it.id) + '">编辑</button>')
+    + '</td></tr>').join('');
+
+  $(`#view-${name}`).innerHTML = `
+    <div class="panel">
+      <div class="toolbar">
+        <input id="q_${name}" placeholder="${esc(schema.placeholder)}" value="${esc(st.search)}">
+        ${filterSelects}
+        <span class="spacer"></span>
+        ${schema.readonly ? '<span class="hint">只读</span>' : '<button class="primary" id="new_' + name + '">+ 新建</button>'}
+      </div>
+      <div id="msg_${name}"></div>
+      ${items.length
+    ? '<table><thead><tr>' + headHtml + '<th>操作</th></tr></thead><tbody>' + bodyHtml + '</tbody></table>'
+    : '<div class="empty">暂无数据</div>'}
+      <div class="pager">
+        <button data-page="prev" ${st.page <= 1 ? 'disabled' : ''}>上一页</button>
+        <span>第 ${st.page} / ${totalPages} 页 · 共 ${total} 条</span>
+        <button data-page="next" ${st.page >= totalPages ? 'disabled' : ''}>下一页</button>
+        <select data-pagesize>
+          ${[10, 20, 50, 100].map((n) => '<option value="' + n + '"'
+            + (st.pageSize === n ? ' selected' : '') + '>' + n + ' 条/页</option>').join('')}
+        </select>
+      </div>
+    </div>`;
+
+  bindCollectionEvents(name, schema, st, totalPages);
+}
+
+function bindCollectionEvents(name, schema, st, totalPages) {
+  const root = $(`#view-${name}`);
+
+  const input = $('#q_' + name, root);
+  if (input) {
+    let timer = null;
+    input.addEventListener('input', (e) => {
+      clearTimeout(timer);
+      const val = e.target.value;
+      timer = setTimeout(() => { st.search = val; st.page = 1; renderCollection(name); }, 250);
+    });
+  }
+
+  $$('[data-filter]', root).forEach((sel) => {
+    sel.addEventListener('change', (e) => {
+      const k = e.target.dataset.filter;
+      if (e.target.value) st.filters[k] = e.target.value;
+      else delete st.filters[k];
+      st.page = 1;
+      renderCollection(name);
+    });
+  });
+
+  $$('[data-page]', root).forEach((b) => {
+    b.addEventListener('click', () => {
+      if (b.dataset.page === 'prev' && st.page > 1) st.page -= 1;
+      if (b.dataset.page === 'next' && st.page < totalPages) st.page += 1;
+      renderCollection(name);
+    });
+  });
+
+  const ps = $('[data-pagesize]', root);
+  if (ps) {
+    ps.addEventListener('change', (e) => {
+      st.pageSize = Number(e.target.value);
+      st.page = 1;
+      renderCollection(name);
+    });
+  }
+
+  const nb = $('#new_' + name, root);
+  if (nb) nb.addEventListener('click', () => openModal(name, null));
+
+  $$('[data-edit]', root).forEach((b) => {
+    b.addEventListener('click', () => openModal(name, b.dataset.edit));
+  });
+}
+
+/* ================= 弹窗 ================= */
+async function openModal(name, id) {
+  const schema = SCHEMA[name];
+  const isEdit = !!id;
+  let item = schema.defaults ? { ...schema.defaults } : {};
+  if (isEdit) {
+    const r = await api('/api/admin/' + name + '?id=' + encodeURIComponent(id));
+    item = (r.data && r.data.item) || item;
+  }
+
+  const mask = document.createElement('div');
+  mask.className = 'mask';
+
+  const bodyHtml = schema.fields.map((f) => {
+    const label = '<label>' + esc(f.label) + (f.required ? ' *' : '') + '</label>';
+    const disabled = f.primary && isEdit;
+    if (f.type === 'select') {
+      const opts = f.options
+        .map((o) => '<option value="' + esc(o) + '"'
+          + (String(item[f.key] ?? '') === o ? ' selected' : '') + '>' + esc(o) + '</option>')
+        .join('');
+      return '<div>' + label + '<select data-key="' + f.key + '"'
+        + (disabled ? ' disabled' : '') + '>' + opts + '</select></div>';
+    }
+    if (f.type === 'bool') {
+      const on = !!item[f.key];
+      return '<div>' + label + '<select data-key="' + f.key + '">'
+        + '<option value="true"' + (on ? ' selected' : '') + '>开启</option>'
+        + '<option value="false"' + (on ? '' : ' selected') + '>关闭</option>'
+        + '</select></div>';
+    }
+    if (f.type === 'textarea') {
+      return '<div>' + label + '<textarea data-key="' + f.key + '">'
+        + esc(item[f.key] ?? '') + '</textarea></div>';
+    }
+    const t = f.type === 'number' ? 'number' : 'text';
+    return '<div>' + label + '<input type="' + t + '" data-key="' + f.key
+      + '" value="' + esc(item[f.key] ?? '') + '"' + (disabled ? ' disabled' : '') + '></div>';
+  }).join('');
+
+  mask.innerHTML = `
+    <div class="modal">
+      <div class="head">${isEdit ? '编辑' : '新建'} · ${esc(schema.title)}</div>
+      <div class="body">${bodyHtml}</div>
+      <div class="foot">
+        ${isEdit ? '<button class="danger" id="delBtn">删除</button>' : ''}
+        <span class="spacer"></span>
+        <button id="cancelBtn">取消</button>
+        <button class="primary" id="saveBtn">保存</button>
+      </div>
+    </div>`;
+  document.body.appendChild(mask);
+
+  const close = () => mask.remove();
+  $('#cancelBtn', mask).addEventListener('click', close);
+  mask.addEventListener('click', (e) => { if (e.target === mask) close(); });
+
+  $('#saveBtn', mask).addEventListener('click', async () => {
+    const payload = {};
+    $$('[data-key]', mask).forEach((el) => {
+      if (el.disabled) return;                       // 主键不带出
+      let v = el.value;
+      if (el.tagName === 'SELECT' && (v === 'true' || v === 'false')) v = v === 'true';
+      else if (el.type === 'number') v = v === '' ? 0 : Number(v);
+      payload[el.dataset.key] = v;
+    });
+    try {
+      const r = await api('/api/admin/' + name + (isEdit ? '?id=' + encodeURIComponent(id) : ''),
+        { method: isEdit ? 'PUT' : 'POST', body: JSON.stringify(payload) });
+      if (!r.data.ok) { alert(r.data.error || '保存失败'); return; }
+      close();
+      renderCollection(name);
+    } catch (e) {
+      alert('保存失败：' + e.message);
+    }
+  });
+
+  if (isEdit) {
+    $('#delBtn', mask).addEventListener('click', async () => {
+      if (!confirm('确认删除该记录？此操作会记入操作日志。')) return;
+      try {
+        const r = await api('/api/admin/' + name + '?id=' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!r.data.ok) { alert(r.data.error || '删除失败'); return; }
+        close();
+        renderCollection(name);
+      } catch (e) {
+        alert('删除失败：' + e.message);
+      }
+    });
+  }
+}
+
+/* ================= 启动 ================= */
+function boot() {
+  api('/api/admin/me')
+    .then(({ data }) => {
+      if (data && data.ok) {
+        currentUser = data;
+        $('#who').textContent = data.username + '（' + data.role + '）';
+        $('#loginView').hidden = true;
+        $('#appView').hidden = false;
+        renderTabs();
+        switchView('overview');
+      } else {
+        showLogin();
+      }
+    })
+    .catch(() => showLogin());
+}
+
+function showLogin(message) {
+  currentUser = null;
+  $('#appView').hidden = true;
+  $('#loginView').hidden = false;
+  const err = $('#loginError');
+  if (message) { err.textContent = message; err.hidden = false; } else { err.hidden = true; }
+}
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('loginBtn');
+  const err = document.getElementById('loginError');
+  btn.disabled = true;
+  err.hidden = true;
+  try {
+    const { data } = await api('/api/admin/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+      }),
+    });
+    if (data.ok) {
+      currentUser = data;
+      $('#who').textContent = data.username + '（' + data.role + '）';
+      $('#loginView').hidden = true;
+      $('#appView').hidden = false;
+      renderTabs();
+      switchView('overview');
+    } else {
+      err.textContent = data.error || '登录失败';
+      err.hidden = false;
+    }
+  } catch (e2) {
+    err.textContent = '登录失败：' + e2.message;
+    err.hidden = false;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  try {
+    await api('/api/admin/logout', { method: 'POST' });
+  } finally {
+    showLogin('已退出登录');
+  }
+});
+
+boot();
+</script>
+</body>
+</html>

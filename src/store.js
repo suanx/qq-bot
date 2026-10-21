@@ -1,44 +1,36 @@
 /**
- * 轻量状态存储：模块级内存 Map（边缘单实例内有效，重启清零）。
- * 若运行环境提供 KV（env.KV_NAMESPACE，get/put 接口），自动降级为无操作。
- * 接口：get / set(ttl 秒) / incr / del
+ * 内存存储驱动（异步接口，与 KV 驱动保持一致）
+ * 单实例内有效，重启清零；用于未绑定 KV 时的降级。
+ * 接口：get / put / del / incr
  */
 
 const data = new Map(); // key -> { v, expireAt }
 
-function _expired(rec) {
+function expired(rec) {
   return !rec || (rec.expireAt && Date.now() > rec.expireAt);
 }
 
-export const store = {
-  get(key, def = null) {
+export const memoryDriver = {
+  async get(key) {
     const rec = data.get(key);
-    if (_expired(rec)) { data.delete(key); return def; }
+    if (expired(rec)) { data.delete(key); return null; }
     return rec.v;
   },
-  set(key, value, ttlSec = 0) {
+  async put(key, value, ttlSec = 0) {
     data.set(key, { v: value, expireAt: ttlSec > 0 ? Date.now() + ttlSec * 1000 : 0 });
   },
-  incr(key, ttlSec = 86400) {
+  async del(key) { data.delete(key); },
+  async incr(key, ttlSec = 86400) {
     const rec = data.get(key);
-    if (_expired(rec)) {
+    if (expired(rec)) {
       data.set(key, { v: 1, expireAt: Date.now() + ttlSec * 1000 });
       return 1;
     }
     rec.v += 1;
     return rec.v;
   },
-  del(key) { data.delete(key); },
   /** 测试用 */
   _clear() { data.clear(); },
 };
 
-/** 群级开关：读取配置默认值，允许管理指令覆盖 */
-export function groupFlag(groupOpenid, name, defaultOn) {
-  const key = `flag:${groupOpenid}:${name}`;
-  const v = store.get(key);
-  return v === undefined || v === null ? defaultOn : !!v;
-}
-export function setGroupFlag(groupOpenid, name, on) {
-  store.set(`flag:${groupOpenid}:${name}`, !!on);
-}
+export default memoryDriver;
