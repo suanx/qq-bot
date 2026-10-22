@@ -67,6 +67,10 @@
   .empty { padding: 28px; text-align: center; color: var(--muted); }
   .msg { padding: 10px 16px; }
   .msg.error { background: #fdf2f2; color: var(--danger); }
+  .login-card .msg.error {
+    border: 1px solid var(--danger); border-radius: 8px;
+    font-weight: 600; text-align: center; margin-bottom: 12px;
+  }
   .msg.ok { background: #f0fdf4; color: var(--ok); }
   .hint { color: var(--muted); font-size: 12px; }
 
@@ -600,12 +604,13 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   const btn = document.getElementById('loginBtn');
   const err = document.getElementById('loginError');
   btn.disabled = true;
+  btn.textContent = '登录中…';
   err.hidden = true;
   try {
     const { data } = await api('/api/admin/login', {
       method: 'POST',
       body: JSON.stringify({
-        username: document.getElementById('username').value,
+        username: document.getElementById('username').value.trim(),
         password: document.getElementById('password').value,
       }),
     });
@@ -617,14 +622,15 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
       renderTabs();
       switchView('overview');
     } else {
-      err.textContent = data.error || '登录失败';
+      err.textContent = '⚠️ ' + (data.error || '登录失败') + '（请检查用户名与口令，注意大小写）';
       err.hidden = false;
     }
   } catch (e2) {
-    err.textContent = '登录失败：' + e2.message;
+    err.textContent = '⚠️ 登录失败：' + e2.message + '（网络异常或服务未响应，请稍后重试）';
     err.hidden = false;
   } finally {
     btn.disabled = false;
+    btn.textContent = '登录';
   }
 });
 
