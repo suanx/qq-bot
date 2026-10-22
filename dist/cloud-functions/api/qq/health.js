@@ -5,12 +5,33 @@
 import crypto from 'node:crypto';
 import { handleRequest } from '../../src/core.js';
 import { derivePublicKey, loadPublicKey } from '../../src/verify.js';
+import { loadConfig } from '../../src/config.js';
 
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), {
     status,
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });
+
+/** 探测一个 URL 的可达性（GET，限时），返回 {status, latencyMs, error} */
+async function probe(url, timeoutMs = 8000) {
+  const started = Date.now();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    return { status: res.status, latencyMs: Date.now() - started, error: null };
+  } catch (e) {
+    const aborted = e && (e.name === 'AbortError' || /abort/i.test(String(e.message)));
+    return {
+      status: null,
+      latencyMs: Date.now() - started,
+      error: aborted ? `超时(${timeoutMs}ms)` : String((e && e.message) || e),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** 公钥指纹：raw 32 字节的 SHA-256 前 12 位 hex，仅用于比对，无法反推密钥 */
 function fingerprint(keyObj) {
@@ -58,6 +79,17 @@ export async function onRequest(context) {
         ? fromSecret.fingerprint === fromEnvKey.fingerprint
         : null;
 
+    // 4) 出网连通性探测（?egress=1 触发，均为 GET 只读固定地址，无 SSRF 风险）
+    let egress = null;
+    if (url.searchParams.get('egress') === '1') {
+      const cfg = loadConfig(env);
+      const [aiModels, qqApi] = await Promise.all([
+        probe(`${cfg.AI_BASE_URL}/models`),
+        probe('https://api.sgroup.qq.com'),
+      ]);
+      egress = { aiGateway: { url: cfg.AI_BASE_URL, ...aiModels }, qqApi };
+    }
+
     return json({
       ok: true,
       envDiag: {
@@ -72,8 +104,19 @@ export async function onRequest(context) {
         callbackKeySet: !!env?.CALLBACK_PUBLIC_KEY,
         callbackKeyLen: (env?.CALLBACK_PUBLIC_KEY || '').length,
         adminPwdSet: !!env?.ADMIN_PASSWORD,
+        adminUsername: String(env?.ADMIN_USERNAME || 'admin（默认）'),
+        ai: {
+          enabled: env?.AI_ENABLED !== undefined ? env?.AI_ENABLED !== '0' : true,
+          apiKeySet: !!env?.AI_API_KEY,
+          apiKeyLen: (env?.AI_API_KEY || '').length,
+          baseUrl: String(env?.AI_BASE_URL || 'https://api.deepseek.com/v1（默认）'),
+          model: String(env?.AI_MODEL || 'deepseek-chat（默认）'),
+          dailyLimit: String(env?.AI_DAILY_LIMIT ?? '0=不限（默认）'),
+          systemPromptSet: !!env?.AI_SYSTEM_PROMPT,
+        },
       },
       keys: { fromSecret, fromEnvKey, sameKey },
+      egress,
       runtime: {
         node: process.version,
         ed25519: fromSecret.ok,

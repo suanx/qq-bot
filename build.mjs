@@ -19,6 +19,7 @@ const REQUIRED = [
   'package.json',
   'dev-server.mjs',
   'admin/index.html',
+  'admin/login.html',
   'cloud-functions/api/qq/webhook.js',
   'cloud-functions/api/qq/health.js',
   'cloud-functions/api/admin/login.js',
@@ -151,7 +152,7 @@ if (existsSync(CF_DIR) && existsSync(join(ROOT, 'src'))) {
 writeFileSync(
   join(DIST, 'index.html'),
   '<!doctype html><meta charset="utf-8"><title>QQ Bot Admin</title>'
-    + '<script>location.replace("/admin/index.html")</script>',
+    + '<script>location.replace("/admin/login.html")</script>',
 );
 console.log('  已生成 dist/index.html（根路径跳转后台）');
 

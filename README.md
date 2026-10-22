@@ -129,10 +129,16 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 
 ## 🖥 管理后台
 
-访问 `https://你的域名/admin/`。
+访问 `https://你的域名/`（自动跳转登录页），两个独立页面：
+
+| 页面 | 路径 | 说明 |
+|---|---|---|
+| 登录页 | `/admin/login.html` | 只负责身份验证；已登录会自动跳进管理界面 |
+| 管理界面 | `/admin/index.html` | 需登录才能进入；未登录访问会被强制跳回登录页 |
 
 **首次登录**：用环境变量里配置的 `ADMIN_USERNAME` / `ADMIN_PASSWORD`（该账号固定为 `owner` 角色）。
 登录成功后服务端下发 HMAC 签名的会话 Cookie（HttpOnly + SameSite=Lax）。
+登录态失效（12 小时过期 / 退出）时，管理界面内任何接口返回 401 都会自动跳回登录页并提示原因（`?reason=logout` 已退出 / `?reason=expired` 已过期 / `?reason=auth` 未登录）。
 
 **功能模块**
 - **数据概览**：今日消息 / 今日 AI 调用 / 今日违规 / 群·成员数 / 违规记录数 / 规则数 / 日志数；违规规则 Top6 分布图；最近 5 条违规

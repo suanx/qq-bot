@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>登录 · QQ 机器人管理后台</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --border: #e3e6ec;
+    --text: #1f2430; --muted: #6b7280; --brand: #2563eb;
+    --brand-soft: #eaf1ff; --ok: #16a34a; --danger: #dc2626;
+    --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.1);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  button {
+    font: inherit; cursor: pointer; border: 1px solid var(--border);
+    background: #fff; color: var(--text); border-radius: 6px; padding: 6px 12px;
+  }
+  button.primary { background: var(--brand); border-color: var(--brand); color: #fff; }
+  button.primary:hover { background: #1d4ed8; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  input {
+    font: inherit; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: #fff; color: var(--text); width: 100%;
+  }
+  .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .login-card { width: 360px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 28px; box-shadow: var(--shadow); }
+  .login-card h1 { margin: 0 0 4px; font-size: 20px; }
+  .login-card p.sub { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+  .msg { padding: 10px 16px; }
+  .msg.error { background: #fdf2f2; color: var(--danger); }
+  .msg.info { background: var(--brand-soft); color: var(--brand); }
+  .login-card .msg {
+    border-radius: 8px; font-weight: 600; text-align: center;
+    margin-bottom: 12px; font-size: 13px;
+  }
+  .login-card .msg.error { border: 1px solid var(--danger); }
+  .login-card .msg.info { border: 1px solid var(--brand); }
+  .hint { color: var(--muted); font-size: 12px; text-align: center; margin: 14px 0 0; }
+</style>
+</head>
+<body>
+
+<div class="login-wrap">
+  <form class="login-card" id="loginForm">
+    <h1>QQ 机器人管理后台</h1>
+    <p class="sub">请使用管理员账号登录</p>
+    <div id="notice" class="msg info" hidden></div>
+    <div class="field">
+      <label for="username">用户名</label>
+      <input id="username" name="username" autocomplete="username" required>
+    </div>
+    <div class="field">
+      <label for="password">口令</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    <div id="loginError" class="msg error" hidden></div>
+    <button class="primary" type="submit" id="loginBtn" style="width:100%">登录</button>
+    <p class="hint">登录成功后自动进入管理界面</p>
+  </form>
+</div>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
+  });
+  let data = {};
+  try { data = await res.json(); } catch { /* 空响应 */ }
+  return { res, data };
+}
+
+/* 跳转来源提示：退出 / 会话过期 / 未登录直接访问 */
+const REASONS = {
+  logout: '已退出登录',
+  expired: '登录已过期，请重新登录',
+  auth: '请先登录后访问管理后台',
+};
+const reason = new URLSearchParams(location.search).get('reason');
+if (reason && REASONS[reason]) {
+  const n = $('#notice');
+  n.textContent = REASONS[reason];
+  n.hidden = false;
+}
+
+/* 已登录用户直接进入管理界面，无需重复登录 */
+api('/api/admin/me').then(({ data }) => {
+  if (data && data.ok) location.replace('./index.html');
+}).catch(() => { /* 保持登录页 */ });
+
+$('#loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = $('#loginBtn');
+  const err = $('#loginError');
+  btn.disabled = true;
+  btn.textContent = '登录中…';
+  err.hidden = true;
+  try {
+    const { data } = await api('/api/admin/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: $('#username').value.trim(),
+        password: $('#password').value,
+      }),
+    });
+    if (data.ok) {
+      btn.textContent = '登录成功，正在进入…';
+      location.replace('./index.html');       // 跳转到独立管理界面
+    } else {
+      err.textContent = '⚠️ ' + (data.error || '登录失败') + '（请检查用户名与口令，注意大小写）';
+      err.hidden = false;
+      btn.disabled = false;
+      btn.textContent = '登录';
+    }
+  } catch (e2) {
+    err.textContent = '⚠️ 登录失败：' + e2.message + '（网络异常或服务未响应，请稍后重试）';
+    err.hidden = false;
+    btn.disabled = false;
+    btn.textContent = '登录';
+  }
+});
+</script>
+</body>
+</html>

@@ -116,7 +116,7 @@ const server = http.createServer(async (req, res) => {
       response = await mod.onRequest({ request, env, ctx });
       await Promise.allSettled(waited);
     } else if (url.pathname === '/') {
-      response = new Response(null, { status: 302, headers: { Location: '/admin/index.html' } });
+      response = new Response(null, { status: 302, headers: { Location: '/admin/login.html' } });
     } else {
       response = await serveStatic(url.pathname);
     }
@@ -137,6 +137,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`server listening on http://${HOST}:${PORT}`);
   console.log('  健康检查: /api/qq/health');
-  console.log('  管理后台: /admin/index.html');
+  console.log('  登录页  : /admin/login.html');
+  console.log('  管理后台: /admin/index.html（需登录）');
   console.log('  Webhook : /api/qq/webhook');
 });
