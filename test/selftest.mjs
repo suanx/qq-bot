@@ -14,6 +14,7 @@ import { handleRequest } from '../src/core.js';
 import { memoryDriver } from '../src/store.js';
 import { signSession, SESSION_COOKIE } from '../src/admin/auth.js';
 import { onRequest as aitestHandler } from '../cloud-functions/api/admin/aitest.js';
+import { onRequest as msgtestHandler } from '../cloud-functions/api/admin/msgtest.js';
 
 const ncrypto = (await import('node:crypto')).default;
 const enc = new TextEncoder();
@@ -506,6 +507,39 @@ await t('aitest mock 全通（回复 + 模型 + 延迟）', async () => {
     assert.equal(j.reply, 'AI 回答');
     assert.equal(typeof j.latencyMs, 'number');
   } finally { restore(); }
+});
+
+/* ---------------- msgtest ---------------- */
+await t('msgtest 未登录 401', async () => {
+  const res = await msgtestHandler({
+    request: new Request('https://x/api/admin/msgtest', { method: 'POST' }),
+    env: { ...baseEnv, ADMIN_SESSION_SECRET: 'sess-secret' },
+  });
+  assert.equal(res.status, 401);
+});
+await t('msgtest 缺 targetId 400', async () => {
+  const token = await signSession({ username: 'admin', role: 'owner' }, 'sess-secret', 3600);
+  const res = await msgtestHandler({
+    request: new Request('https://x/api/admin/msgtest', {
+      method: 'POST', headers: { cookie: `${SESSION_COOKIE}=${token}` },
+      body: JSON.stringify({}),
+    }),
+    env: { ...baseEnv, ADMIN_SESSION_SECRET: 'sess-secret' },
+  });
+  assert.equal(res.status, 400);
+});
+await t('msgtest MOCK 模式明确报错', async () => {
+  const token = await signSession({ username: 'admin', role: 'owner' }, 'sess-secret', 3600);
+  const res = await msgtestHandler({
+    request: new Request('https://x/api/admin/msgtest', {
+      method: 'POST', headers: { cookie: `${SESSION_COOKIE}=${token}` },
+      body: JSON.stringify({ targetId: 'G1' }),
+    }),
+    env: { ...baseEnv, ADMIN_SESSION_SECRET: 'sess-secret', MOCK: '1' },
+  });
+  const j = await res.json();
+  assert.equal(res.status, 400);
+  assert.match(j.error, /MOCK/);
 });
 
 /* ================= 汇总 ================= */
