@@ -15,6 +15,7 @@ import { memoryDriver } from '../src/store.js';
 import { signSession, SESSION_COOKIE } from '../src/admin/auth.js';
 import { onRequest as aitestHandler } from '../cloud-functions/api/admin/aitest.js';
 import { onRequest as msgtestHandler } from '../cloud-functions/api/admin/msgtest.js';
+import { verifyAppIdCandidate } from '../src/qqapi.js';
 
 const ncrypto = (await import('node:crypto')).default;
 const enc = new TextEncoder();
@@ -510,6 +511,18 @@ await t('aitest mock 全通（回复 + 模型 + 延迟）', async () => {
 });
 
 /* ---------------- msgtest ---------------- */
+await t('候选 APP_ID 验证：token 成功', async () => {
+  const fakeFetch = async () => new Response(JSON.stringify({ access_token: 'T', expires_in: 7200 }), { status: 200 });
+  const r = await verifyAppIdCandidate('123', { APP_SECRET: 's' }, fakeFetch);
+  assert.equal(r.ok, true);
+  assert.equal(r.error, null);
+});
+await t('候选 APP_ID 验证：appid invalid', async () => {
+  const fakeFetch = async () => new Response(JSON.stringify({ code: 100007, message: 'appid invalid' }), { status: 200 });
+  const r = await verifyAppIdCandidate('123', { APP_SECRET: 's' }, fakeFetch);
+  assert.equal(r.ok, false);
+  assert.equal(r.error, 'appid invalid');
+});
 await t('msgtest 未登录 401', async () => {
   const res = await msgtestHandler({
     request: new Request('https://x/api/admin/msgtest', { method: 'POST' }),

@@ -7,7 +7,7 @@
  * token 获取失败 / 群权限 / 频控 / 内容审核拦截，错误信息一目了然。
  * 注意：主动消息有平台额度限制，本端点仅供诊断使用。
  */
-import { pushMessage } from '../../../src/qqapi.js';
+import { pushMessage, verifyAppIdCandidate } from '../../../src/qqapi.js';
 import { loadConfig } from '../../../src/config.js';
 import { fail, guard, json } from '../../../src/admin/api.js';
 
@@ -26,15 +26,30 @@ export async function onRequest(context) {
 
   const cfg = loadConfig(env);
   if (cfg.MOCK) return fail('当前为 MOCK 模式，无法真实发送', 400);
-
   const started = Date.now();
+
+  // 候选 APP_ID 验证：服务端 secret + 候选 id 试取 token，定位「APP_ID 配错」
+  const candidate = String(body.appIdCandidate || '').trim();
+  if (candidate) {
+    const r = await verifyAppIdCandidate(candidate, cfg);
+    return json({
+      ok: r.ok,
+      candidate,
+      currentAppId: cfg.APP_ID,
+      candidateMatches: candidate === cfg.APP_ID,
+      latencyMs: Date.now() - started,
+      error: r.ok ? null : r.error,
+    });
+  }
+
+  const startedSend = Date.now();
   try {
     const resp = await pushMessage({ targetId, content, chatType }, cfg);
     return json({
       ok: true,
       chatType,
       targetId,
-      latencyMs: Date.now() - started,
+      latencyMs: Date.now() - startedSend,
       resp, // QQ 平台原始响应
     });
   } catch (e) {
@@ -42,7 +57,7 @@ export async function onRequest(context) {
       ok: false,
       chatType,
       targetId,
-      latencyMs: Date.now() - started,
+      latencyMs: Date.now() - startedSend,
       error: String((e && e.message) || e), // 含 HTTP 状态码与平台错误体
     });
   }

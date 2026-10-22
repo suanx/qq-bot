@@ -6,6 +6,26 @@
  */
 
 const TOKEN_URL = 'https://bots.qq.com/app/getAppAccessToken';
+
+/**
+ * 用候选 APP_ID + 当前 APP_SECRET 试取 access_token（不写缓存，不影响正常调用），
+ * 用于验证「APP_ID 是否配错」类故障。仅管理员诊断端点可触发。
+ */
+export async function verifyAppIdCandidate(candidateId, cfg, fetchImpl = fetch) {
+  const res = await fetchImpl(TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: candidateId, client_secret: cfg.APP_SECRET }),
+  });
+  const text = await res.text();
+  let data = {};
+  try { data = JSON.parse(text); } catch { /* 非 JSON 响应 */ }
+  return {
+    ok: res.ok && !!data.access_token,
+    status: res.status,
+    error: (data && data.message) || (res.ok ? null : text.slice(0, 200)),
+  };
+}
 const API_BASE = 'https://api.sgroup.qq.com';
 
 let tokenCache = { token: '', expiresAt: 0 };
