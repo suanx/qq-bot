@@ -345,7 +345,11 @@ export async function handleMessage(evt, rawEnv) {
   ctx.scope = ctx.chatType === 'group' ? `g:${ctx.targetId}` : `u:${ctx.sender}`;
 
   await bumpStat(kv, 'messages');
-  if (groupOpenid) await touchGroup(kv, groupOpenid);
+  if (groupOpenid) {
+    await touchGroup(kv, groupOpenid);
+    // 登记发言人进成员库（首次自动建档），后台「成员管理」可查 openid
+    await touchMember(kv, groupOpenid, ctx.sender);
+  }
 
   // 1) 管理指令（仅管理员）
   if (isAdminCommand(ctx.text) && await isAdmin(cfg, kv, ctx.sender)) {
