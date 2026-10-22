@@ -112,7 +112,6 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 | `ADMIN_SESSION_SECRET` | | 会话签名密钥，缺省回落到 `APP_SECRET` |
 | `ADMIN_SESSION_TTL` | | 会话有效期（秒），默认 43200 |
 | `ADMIN_COOKIE_SECURE` | | Cookie 是否仅 HTTPS，本地 http 调试设 `0` |
-| `LEAVE_BLACKLIST_ENABLED` | | 退群拉黑开关，默认 0 |
 | `MOCK` | | 打开后 QQ API 只打印不真正请求 |
 
 > 配置后需**重新部署**一次生效。
@@ -122,7 +121,10 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 2. 「开发设置 → 回调配置」：URL 填 `https://你的域名/api/qq/webhook`
 3. 验签密钥**由 `APP_SECRET` 自动派生**（官方算法，`tools/derive-callback-key.mjs` 可查看公钥），无需额外配置
 4. 点「推送验证」→ 平台发送 op=13（`plain_token`+`event_ts`）→ 服务端用派生私钥签名返回 `{"plain_token","signature"}` → 验证通过
-5. 订阅事件：`GROUP_AT_MESSAGE_CREATE`、`C2C_MESSAGE_CREATE`、`GROUP_MEMBER_ADD`、`GROUP_MEMBER_REMOVE`、`GROUP_ADD_ROBOT`
+5. 订阅事件（均属 `GROUP_AND_C2C_EVENT (1<<25)` intent）：
+   - **必勾**：`GROUP_AT_MESSAGE_CREATE`（群@消息）、`C2C_MESSAGE_CREATE`（私聊）、`GROUP_ADD_ROBOT`（进群欢迎）
+   - **建议**：`GROUP_DEL_ROBOT`（移出群→标记停用）、`FRIEND_ADD`（加好友引导）、`FRIEND_DEL`
+   - 注意：**QQ 群体系没有 `GROUP_MEMBER_ADD`/`GROUP_MEMBER_REMOVE` 事件**（那是频道体系的 `GUILD_MEMBER_*`），群成员进出无法感知
 6. 把机器人拉进群，给它**群管理员**身份（禁言/撤回需要）
 
 ## 🖥 管理后台

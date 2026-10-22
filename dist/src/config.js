@@ -40,9 +40,6 @@ export function loadConfig(env = {}) {
     AD_KEYWORDS: list(env.AD_KEYWORDS),                   // 额外关键词
     AD_REGEX: list(env.AD_REGEX),                          // 额外正则
 
-    // 退群拉黑（依赖内邀接口，失败自动忽略）
-    LEAVE_BLACKLIST_ENABLED: bool(env.LEAVE_BLACKLIST_ENABLED, false),
-
     // 管理：openid 白名单（逗号分隔），这些用户可发管理指令
     ADMIN_OPENIDS: list(env.ADMIN_OPENIDS),
 

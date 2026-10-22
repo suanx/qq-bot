@@ -345,12 +345,17 @@ await t('提取多个 @ 目标', () => {
 });
 
 console.log('\n[事件处理]');
-await t('进群欢迎', async () => {
-  const r = await handleMessage(evt('GROUP_MEMBER_ADD', { group_openid: 'G1', member_openid: 'U3' }), baseEnv);
-  assert.match(r.content, /欢迎新成员/);
+await t('机器人被移出群：标记 inactive 不回复', async () => {
+  const r = await handleMessage(evt('GROUP_DEL_ROBOT', { group_openid: 'G1' }), baseEnv);
+  assert.equal(r, null);
 });
-await t('退群不回复', async () => {
-  const r = await handleMessage(evt('GROUP_MEMBER_REMOVE', { group_openid: 'G1', member_openid: 'U3' }), baseEnv);
+await t('好友添加：c2c 引导语', async () => {
+  const r = await handleMessage(evt('FRIEND_ADD', { user_openid: 'U3' }), baseEnv);
+  assert.equal(r.chatType, 'c2c');
+  assert.match(r.content, /帮助/);
+});
+await t('好友删除：静默', async () => {
+  const r = await handleMessage(evt('FRIEND_DEL', { user_openid: 'U3' }), baseEnv);
   assert.equal(r, null);
 });
 await t('机器人进群欢迎', async () => {

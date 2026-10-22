@@ -302,25 +302,26 @@ export async function handleMessage(evt, rawEnv) {
       content: '大家好！我是 AI 助手机器人 🤖\n直接 @我 提问即可对话；发送「帮助」查看指令。',
     };
   }
-  if (type === 'GROUP_MEMBER_REMOVE') {
-    if (cfg.LEAVE_BLACKLIST_ENABLED && d.group_openid && d.member_openid) {
-      try {
-        await blacklistMember(d.group_openid, d.member_openid, true, cfg);
-        await touchMember(kv, d.group_openid, d.member_openid, { status: 'blacklisted' });
-        console.log(`[leave-blacklist] 已拉黑退群成员 ${d.member_openid}`);
-      } catch (e) {
-        console.warn(`[leave-blacklist] 拉黑失败(需内邀权限): ${e.message}`);
-      }
+  // 机器人被移出群聊：标记群为停用（保留数据供审计），不回复
+  if (type === 'GROUP_DEL_ROBOT') {
+    if (d.group_openid) {
+      await touchGroup(kv, d.group_openid, { status: 'inactive' });
+      console.log(`[group-del-robot] 机器人被移出群 ${d.group_openid}，已标记 inactive`);
     }
-    return null; // 退群不回复
+    return null;
   }
-  if (type === 'GROUP_MEMBER_ADD') {
-    await touchGroup(kv, d.group_openid);
-    await touchMember(kv, d.group_openid, d.member_openid, { status: 'normal' });
+  // 用户添加机器人好友：发一条 c2c 引导语（无 msg_id，属主动消息，失败静默）
+  if (type === 'FRIEND_ADD') {
+    const uid = d.user_openid || d.openid || (d.author && d.author.user_openid);
+    if (!uid) return null;
     return {
-      chatType: 'group', targetId: d.group_openid, msgId: null, msgSeq: 1,
-      content: '🎉 欢迎新成员加入！发送「帮助」了解我。',
+      chatType: 'c2c', targetId: uid, msgId: null, msgSeq: 1,
+      content: '感谢添加！我可以在群里 @我 对话，也可以直接在这里私聊提问～发送「帮助」查看指令。',
     };
+  }
+  // 用户删除机器人好友：静默，不回复
+  if (type === 'FRIEND_DEL') {
+    return null;
   }
 
   // ---- 消息事件 ----
