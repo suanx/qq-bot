@@ -5,7 +5,8 @@
  *  - 群管理：禁言 / 踢人 / 黑名单（踢人、拉黑为内邀接口，失败自动忽略）
  */
 
-const TOKEN_URL = 'https://bots.qq.com/app/getAppAccessToken';
+const TOKEN_URL = 'https://api.bot.qq.com/app/getAppAccessToken';
+const API_BASE = 'https://api.bot.qq.com';
 
 /**
  * 用候选 APP_ID + 当前 APP_SECRET 试取 access_token（不写缓存，不影响正常调用），
@@ -15,7 +16,7 @@ export async function verifyAppIdCandidate(candidateId, cfg, fetchImpl = fetch) 
   const res = await fetchImpl(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: candidateId, client_secret: cfg.APP_SECRET }),
+    body: JSON.stringify({ appId: candidateId, clientSecret: cfg.APP_SECRET }),
   });
   const text = await res.text();
   let data = {};
@@ -26,7 +27,6 @@ export async function verifyAppIdCandidate(candidateId, cfg, fetchImpl = fetch) 
     error: (data && data.message) || (res.ok ? null : text.slice(0, 200)),
   };
 }
-const API_BASE = 'https://api.sgroup.qq.com';
 
 let tokenCache = { token: '', expiresAt: 0 };
 
@@ -46,7 +46,7 @@ async function getAccessToken(cfg, fetchImpl = fetch) {
   const res = await fetchImpl(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: cfg.APP_ID, client_secret: cfg.APP_SECRET }),
+    body: JSON.stringify({ appId: cfg.APP_ID, clientSecret: cfg.APP_SECRET }),
   });
   if (!res.ok) throw new Error(`获取 access_token 失败: HTTP ${res.status} ${await res.text()}`);
   const data = await res.json();
@@ -66,7 +66,7 @@ async function callApi(cfg, method, path, body = null, fetchImpl = fetch) {
     method,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bot ${cfg.APP_ID}.${token}`,
+      Authorization: `QQBot ${token}`,
       'X-Union-Appid': cfg.APP_ID,
     },
     body: body ? JSON.stringify(body) : undefined,
