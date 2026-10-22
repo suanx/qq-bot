@@ -72,6 +72,16 @@ export async function onRequest(context) {
         callbackKeySet: !!env?.CALLBACK_PUBLIC_KEY,
         callbackKeyLen: (env?.CALLBACK_PUBLIC_KEY || '').length,
         adminPwdSet: !!env?.ADMIN_PASSWORD,
+        adminUsername: String(env?.ADMIN_USERNAME || 'admin（默认）'),
+        ai: {
+          enabled: env?.AI_ENABLED !== undefined ? env?.AI_ENABLED !== '0' : true,
+          apiKeySet: !!env?.AI_API_KEY,
+          apiKeyLen: (env?.AI_API_KEY || '').length,
+          baseUrl: String(env?.AI_BASE_URL || 'https://api.deepseek.com/v1（默认）'),
+          model: String(env?.AI_MODEL || 'deepseek-chat（默认）'),
+          dailyLimit: String(env?.AI_DAILY_LIMIT ?? '0=不限（默认）'),
+          systemPromptSet: !!env?.AI_SYSTEM_PROMPT,
+        },
       },
       keys: { fromSecret, fromEnvKey, sameKey },
       runtime: {

@@ -12,6 +12,8 @@ import { createRepo, COLLECTIONS } from '../src/repo.js';
 import { handleMessage, fmtDuration, parseDuration, extractMentions, stripMentions } from '../src/handlers.js';
 import { handleRequest } from '../src/core.js';
 import { memoryDriver } from '../src/store.js';
+import { signSession, SESSION_COOKIE } from '../src/admin/auth.js';
+import { onRequest as aitestHandler } from '../cloud-functions/api/admin/aitest.js';
 
 const ncrypto = (await import('node:crypto')).default;
 const enc = new TextEncoder();
@@ -461,6 +463,48 @@ await t('每日预算上限拦截', async () => {
     await handleMessage(groupMsg('a', 'U1', 'G_BUD', 'M1'), env);
     const r = await handleMessage(groupMsg('b', 'U1', 'G_BUD', 'M2'), env);
     assert.match(r.content, /今日 AI 调用已用完/);
+  } finally { restore(); }
+});
+
+console.log('\n[AI 连通性测试端点]');
+await t('aitest 未登录 → 401', async () => {
+  const res = await aitestHandler({
+    request: new Request('https://x/api/admin/aitest', { method: 'POST' }),
+    env: baseEnv,
+  });
+  assert.equal(res.status, 401);
+});
+await t('aitest 未配置 AI_API_KEY', async () => {
+  const token = await signSession({ username: 'admin', role: 'owner' }, 'sess-secret', 3600);
+  const res = await aitestHandler({
+    request: new Request('https://x/api/admin/aitest', {
+      method: 'POST', headers: { cookie: `${SESSION_COOKIE}=${token}` },
+    }),
+    env: { ...baseEnv, ADMIN_SESSION_SECRET: 'sess-secret' },
+  });
+  const j = await res.json();
+  assert.equal(j.ok, false);
+  assert.equal(j.reason, 'not_configured');
+});
+await t('aitest mock 全通（回复 + 模型 + 延迟）', async () => {
+  const token = await signSession({ username: 'admin', role: 'owner' }, 'sess-secret', 3600);
+  const env = {
+    ...baseEnv, ADMIN_SESSION_SECRET: 'sess-secret',
+    AI_API_KEY: 'k', AI_MODEL: 'test-model',
+  };
+  const restore = stubAI();
+  try {
+    const res = await aitestHandler({
+      request: new Request('https://x/api/admin/aitest', {
+        method: 'POST', headers: { cookie: `${SESSION_COOKIE}=${token}` },
+      }),
+      env,
+    });
+    const j = await res.json();
+    assert.equal(j.ok, true);
+    assert.equal(j.model, 'test-model');
+    assert.equal(j.reply, 'AI 回答');
+    assert.equal(typeof j.latencyMs, 'number');
   } finally { restore(); }
 });
 
