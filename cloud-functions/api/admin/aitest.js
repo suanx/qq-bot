@@ -20,11 +20,11 @@ export async function onRequest(context) {
     return json({ ok: false, reason: 'not_configured', error: '未配置 AI_API_KEY' });
   }
 
-  // 测试专用配置：限输出长度、收紧超时，控制成本
+  // 测试专用配置：限输出长度、超时最多放宽到 45s（慢速免费模型也可能 20s+），控制成本
   const testCfg = {
     ...cfg,
     AI_MAX_TOKENS: 24,
-    AI_TIMEOUT_MS: Math.min(Number(cfg.AI_TIMEOUT_MS) || 30000, 20000),
+    AI_TIMEOUT_MS: Math.min(Number(cfg.AI_TIMEOUT_MS) || 30000, 45000),
   };
 
   const started = Date.now();
@@ -41,12 +41,15 @@ export async function onRequest(context) {
       reply: String(reply).slice(0, 120),
     });
   } catch (e) {
+    const aborted = e && (e.name === 'AbortError' || /abort/i.test(String(e && e.message)));
     return json({
       ok: false,
       model: cfg.AI_MODEL,
       baseUrl: cfg.AI_BASE_URL,
       latencyMs: Date.now() - started,
-      error: String((e && e.message) || e),
+      error: aborted
+        ? `AI 请求超时（>${Math.round(testCfg.AI_TIMEOUT_MS / 1000)}s 无响应）`
+        : String((e && e.message) || e),
     });
   }
 }
