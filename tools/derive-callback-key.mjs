@@ -10,6 +10,9 @@
  *
  * 用法： node tools/derive-callback-key.mjs <APP_SECRET>
  * 输出的 base64 即 CALLBACK_PUBLIC_KEY 环境变量的值
+ *
+ * 注：运行时（src/core.js）会自动由 APP_SECRET 派生同一把公钥，
+ * CALLBACK_PUBLIC_KEY 已改为可选配置；本工具仅用于人工核对/排查。
  */
 import crypto from 'node:crypto';
 

@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { loadConfig } from '../src/config.js';
-import { loadPublicKey, verifyEd25519, checkTimestamp, verifyRequest } from '../src/verify.js';
+import { loadPublicKey, verifyEd25519, checkTimestamp, verifyRequest, derivePublicKey, deriveSeed, derivePrivateKey } from '../src/verify.js';
 import { checkAd } from '../src/adfilter.js';
 import { decideAction, recordViolation, getViolations, clearViolations } from '../src/moderation.js';
 import { createKV } from '../src/kv.js';
@@ -111,14 +111,33 @@ await t('loadPublicKey 支持 PEM', async () => {
 await t('公钥长度异常时抛错', async () => {
   assert.throws(() => loadPublicKey(b64(new Uint8Array(10))));
 });
-await t('验签通过 / 篡改失败', async () => {
+await t('官方 DEMO 一致性：seed 派生（secret→32字节）', () => {
+  // 官方《安全和授权》DEMO：secret=naOC0ocQE3shWLAfffVLB1rhYPG7 → seed 末 4 字节为 "naOC"
+  const seed = deriveSeed('naOC0ocQE3shWLAfffVLB1rhYPG7');
+  assert.equal(seed.length, 32);
+  assert.equal(seed.toString('utf8'), 'naOC0ocQE3shWLAfffVLB1rhYPG7naOC');
+});
+await t('官方 DEMO 一致性：派生公钥逐字节一致 + 签名自洽', () => {
+  // 官方 DEMO 输出的公钥字节：[215 195 98 254 ... 103 58]
+  const officialPubHex = 'd7c362fe78aef81ff23287b493628b5db02a3c4fe30b215e4d19609b5d76673a';
+  const secret = 'naOC0ocQE3shWLAfffVLB1rhYPG7';
+  const pub = derivePublicKey(secret);
+  assert.equal(pub.export({ format: 'der', type: 'spki' }).slice(-32).toString('hex'), officialPubHex);
+  // 签名往返自洽（hex 编码验签）
+  const body = '{ "op": 0,"d": {}, "t": "GATEWAY_EVENT_NAME"}';
+  const ts = '1725442341';
+  const sig = ncrypto.sign(null, Buffer.from(ts + body, 'utf8'), derivePrivateKey(secret)).toString('hex');
+  assert.equal(sig.length, 128);
+  assert.equal(verifyEd25519(pub, sig, ts, body), true);
+});
+await t('hex 与 base64 签名均可验签', async () => {
   const key = await loadPublicKey(b64(kp.publicKey.export({ format: 'der', type: 'spki' }).slice(-32)));
   const ts = String(Math.floor(Date.now() / 1000));
   const body = '{"op":0}';
   const sig = ncrypto.sign(null, Buffer.from(ts + body, 'utf8'), kp.privateKey);
-  const sigB64 = b64(sig);
-  assert.equal(await verifyEd25519(key, sigB64, ts, body), true);
-  assert.equal(await verifyEd25519(key, sigB64, ts, body + 'x'), false);
+  assert.equal(await verifyEd25519(key, sig.toString('hex'), ts, body), true);   // 官方 hex
+  assert.equal(await verifyEd25519(key, b64(sig), ts, body), true);              // 兼容 base64
+  assert.equal(await verifyEd25519(key, b64(sig), ts, body + 'x'), false);
 });
 await t('时间戳容差', () => {
   const now = Math.floor(Date.now() / 1000);
@@ -355,18 +374,37 @@ await t('无签名返回 401', async () => {
   }), baseEnv, {});
   assert.equal(res.status, 401);
 });
-await t('op=13 回显 challenge', async () => {
-  const key = await loadPublicKeyFor();
-  const body = JSON.stringify({ op: 13, d: { plainChallenge: 'xyz' } });
-  const ts = String(Math.floor(Date.now() / 1000));
-  const sig = b64(ncrypto.sign(null, Buffer.from(ts + body, 'utf8'), kp.privateKey));
+await t('op=13 回调验证：官方格式（无签名头→返回 plain_token+hex 签名）', async () => {
+  const body = JSON.stringify({ op: 13, d: { plain_token: 'Arq0D5A61EgUu4OxUvOp', event_ts: '1725442341' } });
+  // 官方规定校验请求不带签名头
   const res = await handleRequest(new Request('https://x/api/qq/webhook', {
     method: 'POST',
-    headers: { 'x-signature-ed25519': sig, 'x-signature-timestamp': ts },
     body,
-  }), { ...baseEnv, CALLBACK_PUBLIC_KEY: key }, { waitUntil: () => {} });
+  }), { ...baseEnv, CALLBACK_PUBLIC_KEY: await loadPublicKeyFor() }, { waitUntil: () => {} });
   assert.equal(res.status, 200);
-  assert.equal((await res.json()).plainChallenge, 'xyz');
+  const out = await res.json();
+  assert.equal(out.plain_token, 'Arq0D5A61EgUu4OxUvOp');
+  assert.match(out.signature, /^[0-9a-f]{128}$/); // hex 64 字节
+  // 应答签名可由 APP_SECRET 派生公钥验证
+  const pub = derivePublicKey(baseEnv.APP_SECRET);
+  const msg = Buffer.from('1725442341' + 'Arq0D5A61EgUu4OxUvOp', 'utf8');
+  assert.equal(ncrypto.verify(null, msg, pub, Buffer.from(out.signature, 'hex')), true);
+});
+await t('op=13 校验：与 APP_SECRET 派生公钥闭环（无 CALLBACK_PUBLIC_KEY）', async () => {
+  const body = JSON.stringify({ op: 13, d: { plain_token: 'tok', event_ts: '99' } });
+  const env = { ...baseEnv };
+  delete env.APP_SECRET;
+  env.APP_SECRET = 'another-secret';
+  const res = await handleRequest(new Request('https://x/api/qq/webhook', { method: 'POST', body }), env, {});
+  assert.equal(res.status, 200);
+  const out = await res.json();
+  const pub = derivePublicKey('another-secret');
+  assert.equal(ncrypto.verify(null, Buffer.from('99tok', 'utf8'), pub, Buffer.from(out.signature, 'hex')), true);
+});
+await t('op=13 校验：缺 plain_token 返回 400', async () => {
+  const body = JSON.stringify({ op: 13, d: { event_ts: '1' } });
+  const res = await handleRequest(new Request('https://x/api/qq/webhook', { method: 'POST', body }), baseEnv, {});
+  assert.equal(res.status, 400);
 });
 
 /* 辅助：导出 base64 原始公钥 */

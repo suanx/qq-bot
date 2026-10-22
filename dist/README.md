@@ -89,7 +89,7 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 |---|---|---|
 | `APP_ID` | ✅ | QQ 开放平台机器人 ID |
 | `APP_SECRET` | ✅ | 机器人密钥 |
-| `CALLBACK_PUBLIC_KEY` | ✅ | 回调配置里的 Ed25519 公钥 |
+| `CALLBACK_PUBLIC_KEY` | | 可选。Ed25519 验签公钥（base64）；**缺省时自动由 `APP_SECRET` 按官方算法派生**，一般无需配置 |
 | `SIGN_TOLERANCE` | | 时间戳容差（秒），默认 300 |
 | `AI_API_KEY` | AI对话 | 大模型 API Key |
 | `AI_BASE_URL` | | 默认 `https://api.deepseek.com/v1` |
@@ -120,8 +120,8 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 ## 📡 QQ 开放平台配置
 1. [q.qq.com](https://q.qq.com) 创建机器人（群聊场景）
 2. 「开发设置 → 回调配置」：URL 填 `https://你的域名/api/qq/webhook`
-3. 把平台的 **Ed25519 公钥** 填入 `CALLBACK_PUBLIC_KEY`
-4. 点「推送验证」→ 服务端自动回显 challenge → 验证通过
+3. 验签密钥**由 `APP_SECRET` 自动派生**（官方算法，`tools/derive-callback-key.mjs` 可查看公钥），无需额外配置
+4. 点「推送验证」→ 平台发送 op=13（`plain_token`+`event_ts`）→ 服务端用派生私钥签名返回 `{"plain_token","signature"}` → 验证通过
 5. 订阅事件：`GROUP_AT_MESSAGE_CREATE`、`C2C_MESSAGE_CREATE`、`GROUP_MEMBER_ADD`、`GROUP_MEMBER_REMOVE`、`GROUP_ADD_ROBOT`
 6. 把机器人拉进群，给它**群管理员**身份（禁言/撤回需要）
 

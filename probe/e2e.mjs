@@ -59,11 +59,30 @@ console.log('=== 1. 健康检查 ===');
   check('health 返回服务名', j.service === 'qq-bot-edgeone', JSON.stringify(j));
 }
 
-console.log('\n=== 2. Webhook 校验（op=13 回显）===');
+console.log('\n=== 2. Webhook 校验（op=13 官方流程）===');
 {
-  const res = await post({ op: 13, d: { plainChallenge: 'challenge-abc' } });
+  // 官方规定：校验请求不带签名头，body 为 plain_token + event_ts，
+  // 机器人须返回 {"plain_token","signature"(hex)}，签名可由 APP_SECRET 派生公钥验证
+  const plainToken = 'Arq0D5A61EgUu4OxUvOp';
+  const eventTs = String(Math.floor(Date.now() / 1000));
+  const request = new Request('https://x/api/qq/webhook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ op: 13, d: { plain_token: plainToken, event_ts: eventTs } }),
+  });
+  const res = await handleRequest(request, env, {});
   const j = await res.json();
-  check('challenge 回显', j.plainChallenge === 'challenge-abc', JSON.stringify(j));
+  check('校验应答 200', res.status === 200, JSON.stringify(j));
+  check('回传 plain_token', j.plain_token === plainToken, JSON.stringify(j));
+  check('signature 为 hex(128)', typeof j.signature === 'string' && /^[0-9a-f]{128}$/.test(j.signature), JSON.stringify(j));
+  if (j.signature) {
+    // 用 APP_SECRET 派生公钥验证应答签名
+    const { derivePublicKey } = await import('../src/verify.js');
+    const pub = derivePublicKey(env.APP_SECRET);
+    const ncrypto = (await import('node:crypto')).default;
+    const msg = Buffer.from(eventTs + plainToken, 'utf8');
+    check('应答签名可由派生公钥验证', ncrypto.verify(null, msg, pub, Buffer.from(j.signature, 'hex')));
+  }
 }
 
 console.log('\n=== 3. 群消息 -> 基础指令 ===');

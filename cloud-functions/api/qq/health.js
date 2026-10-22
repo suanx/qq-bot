@@ -1,14 +1,27 @@
 /**
  * GET /api/qq/health 健康检查
- * ?diag=1 返回环境变量诊断（仅键名与存在性，绝不含值，可长期保留）
+ * ?diag=1 返回环境变量诊断（仅键名、长度、指纹，绝不含密钥原文，可长期保留）
  */
+import crypto from 'node:crypto';
 import { handleRequest } from '../../../src/core.js';
+import { derivePublicKey, loadPublicKey } from '../../../src/verify.js';
 
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), {
     status,
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });
+
+/** 公钥指纹：raw 32 字节的 SHA-256 前 12 位 hex，仅用于比对，无法反推密钥 */
+function fingerprint(keyObj) {
+  if (!keyObj) return null;
+  try {
+    const raw = keyObj.export({ format: 'der', type: 'spki' }).subarray(-32);
+    return crypto.createHash('sha256').update(raw).digest('hex').slice(0, 12);
+  } catch {
+    return null;
+  }
+}
 
 export async function onRequest(context) {
   const { request, env, ctx } = context;
@@ -17,39 +30,54 @@ export async function onRequest(context) {
   if (url.searchParams.get('diag') === '1') {
     const names = env && typeof env === 'object' ? Object.keys(env).sort() : [];
 
-    // Ed25519 WebCrypto 支持性实测（复现 verify.js 的 importKey 逻辑，不返回任何密钥值）
-    const ed25519 = { supported: null, error: null };
+    // 1) APP_SECRET 派生公钥的能力 + 指纹（op=13 应答签名靠它）
+    const fromSecret = { ok: false, fingerprint: null, error: null };
     try {
-      const b64 = String(env?.CALLBACK_PUBLIC_KEY || '').trim();
-      if (!b64) throw new Error('CALLBACK_PUBLIC_KEY 为空');
-      const bin = atob(b64);
-      const raw = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) raw[i] = bin.charCodeAt(i);
-      if (raw.length !== 32) throw new Error(`解码后 ${raw.length} 字节（期望 32）`);
-      const prefix = new Uint8Array([0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00]);
-      const spki = new Uint8Array(prefix.length + raw.length);
-      spki.set(prefix);
-      spki.set(raw, prefix.length);
-      const key = await crypto.subtle.importKey('spki', spki, { name: 'Ed25519' }, false, ['verify']);
-      ed25519.supported = true;
-      ed25519.keyType = key?.constructor?.name || 'CryptoKey';
+      if (!env?.APP_SECRET) throw new Error('APP_SECRET 未配置');
+      fromSecret.fingerprint = fingerprint(derivePublicKey(env.APP_SECRET));
+      fromSecret.ok = !!fromSecret.fingerprint;
     } catch (e) {
-      ed25519.supported = false;
-      ed25519.error = String((e && e.message) || e);
+      fromSecret.error = String((e && e.message) || e);
     }
+
+    // 2) 显式配置的 CALLBACK_PUBLIC_KEY 指纹（事件验签用）
+    const fromEnvKey = { set: false, fingerprint: null, error: null };
+    try {
+      const v = String(env?.CALLBACK_PUBLIC_KEY || '').trim();
+      fromEnvKey.set = !!v;
+      if (!v) throw new Error('未配置（事件验签将回退 APP_SECRET 派生）');
+      fromEnvKey.fingerprint = fingerprint(loadPublicKey(v));
+      fromEnvKey.ok = !!fromEnvKey.fingerprint;
+    } catch (e) {
+      fromEnvKey.error = String((e && e.message) || e);
+    }
+
+    // 3) 两者是否同源（不同源说明 APP_SECRET 与配置公钥不匹配，必然验签失败）
+    const sameKey =
+      fromSecret.fingerprint && fromEnvKey.fingerprint
+        ? fromSecret.fingerprint === fromEnvKey.fingerprint
+        : null;
 
     return json({
       ok: true,
       envDiag: {
-        envType: typeof env,
         keyCount: names.length,
         keyNames: names,
+        appIdSet: !!env?.APP_ID,
+        appSecretSet: !!env?.APP_SECRET,
+        appSecretLen: (env?.APP_SECRET || '').length,
+        appSecretLooksPlaceholder: /^(test|local|demo|dev|placeholder|xxx)/i.test(
+          String(env?.APP_SECRET || ''),
+        ),
         callbackKeySet: !!env?.CALLBACK_PUBLIC_KEY,
         callbackKeyLen: (env?.CALLBACK_PUBLIC_KEY || '').length,
-        appIdSet: !!env?.APP_ID,
         adminPwdSet: !!env?.ADMIN_PASSWORD,
       },
-      ed25519,
+      keys: { fromSecret, fromEnvKey, sameKey },
+      runtime: {
+        node: process.version,
+        ed25519: fromSecret.ok,
+      },
     });
   }
 
