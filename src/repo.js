@@ -120,6 +120,7 @@ export const COLLECTIONS = {
   RULES: 'rules',
   ADMINS: 'admins',
   LOGS: 'logs',
+  SETTINGS: 'settings',   // 全局配置（欢迎词、退群提示等）
 };
 
 export default createRepo;

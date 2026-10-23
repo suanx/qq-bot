@@ -123,6 +123,47 @@ export async function setGroupFlag(kv, groupOpenid, name, on) {
   await kv.put(`flag:${groupOpenid}:${name}`, !!on);
 }
 
+/** 读取群档案（不存在返回 null） */
+export async function getGroupDoc(kv, groupOpenid) {
+  if (!groupOpenid) return null;
+  return createRepo(kv).get(COLLECTIONS.GROUPS, groupOpenid);
+}
+
+/** 读取成员档案（不存在返回 null） */
+export async function getMemberDoc(kv, groupOpenid, memberOpenid) {
+  if (!groupOpenid || !memberOpenid) return null;
+  return createRepo(kv).get(COLLECTIONS.MEMBERS, `${groupOpenid}:${memberOpenid}`);
+}
+
+/**
+ * 全局设置（单条记录，id 固定为 WELCOME，后台「欢迎词设置」可编辑）
+ * 字段：welcomeEnabled / memberWelcome / botWelcome / leaveNotice / autoBlacklistOnLeave
+ */
+export const SETTINGS_WELCOME_ID = 'welcome';
+
+export async function loadSettings(kv) {
+  try {
+    return (await createRepo(kv).get(COLLECTIONS.SETTINGS, SETTINGS_WELCOME_ID)) || {};
+  } catch (e) {
+    console.warn('读取设置失败，使用默认值:', e.message);
+    return {};
+  }
+}
+
+export async function saveSettings(kv, patch = {}) {
+  const repo = createRepo(kv);
+  const cur = await repo.get(COLLECTIONS.SETTINGS, SETTINGS_WELCOME_ID);
+  if (!cur) {
+    return repo.create(COLLECTIONS.SETTINGS, {
+      id: SETTINGS_WELCOME_ID,
+      welcomeEnabled: true,
+      autoBlacklistOnLeave: true,
+      ...patch,
+    });
+  }
+  return repo.update(COLLECTIONS.SETTINGS, SETTINGS_WELCOME_ID, patch);
+}
+
 /** 后台管理员 openid 列表（仅启用状态） */
 export async function loadAdminOpenids(kv) {
   const repo = createRepo(kv);
@@ -135,4 +176,5 @@ export async function loadAdminOpenids(kv) {
 export default {
   touchGroup, touchMember, logViolation, bumpStat, readStats,
   beijingDay, getGroupFlag, setGroupFlag, loadAdminOpenids,
+  getGroupDoc, getMemberDoc, loadSettings, saveSettings,
 };

@@ -200,6 +200,7 @@
         <section id="view-members" class="view" hidden></section>
         <section id="view-violations" class="view" hidden></section>
         <section id="view-rules" class="view" hidden></section>
+        <section id="view-settings" class="view" hidden></section>
         <section id="view-admins" class="view" hidden></section>
         <section id="view-logs" class="view" hidden></section>
       </main>
@@ -260,6 +261,7 @@ const ICONS = {
   rules: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
   admins: '<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>',
   logs: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  settings: '<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/><circle cx="9" cy="5" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="19" r="2"/>',
 };
 const svgIcon = (key) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
   + (ICONS[key] || '') + '</svg>';
@@ -270,6 +272,7 @@ const VIEWS = [
   { key: 'members', label: '成员管理' },
   { key: 'violations', label: '违规记录' },
   { key: 'rules', label: '广告规则' },
+  { key: 'settings', label: '欢迎词设置' },
   { key: 'admins', label: '管理员与权限' },
   { key: 'logs', label: '操作日志' },
 ];
@@ -288,6 +291,8 @@ const SCHEMA = {
       { key: 'aiEnabled', label: 'AI 对话', type: 'bool' },
       { key: 'adFilterEnabled', label: '广告过滤', type: 'bool' },
       { key: 'memberCount', label: '成员数', type: 'number' },
+      { key: 'memberWelcome', label: '专属欢迎词（留空则用全局）', type: 'textarea' },
+      { key: 'leaveNotice', label: '专属退群提示（留空则用全局）', type: 'textarea' },
     ],
   },
   members: {
@@ -394,6 +399,7 @@ function switchView(key) {
   $('#pageTitle').textContent = title;
   document.title = title + ' · QQ 机器人管理后台';
   if (key === 'overview') renderOverview();
+  else if (key === 'settings') renderSettings();
   else renderCollection(key);
 }
 
@@ -746,6 +752,83 @@ async function openModal(name, id) {
       }
     });
   }
+}
+
+/* ================= 欢迎词设置 ================= */
+const SETTINGS_FIELDS = [
+  { key: 'welcomeEnabled', type: 'bool', label: '迎宾 / 送别总开关' },
+  { key: 'memberWelcome', type: 'text', label: '新成员进群欢迎词' },
+  { key: 'botWelcome', type: 'text', label: '机器人进群欢迎词' },
+  { key: 'leaveNotice', type: 'text', label: '成员退群提示' },
+  { key: 'autoBlacklistOnLeave', type: 'bool', label: '成员退群自动拉黑' },
+];
+
+async function renderSettings() {
+  const root = $('#view-settings');
+  root.innerHTML = '<div class="panel"><div class="head">欢迎词设置</div>'
+    + '<div style="padding:18px" class="empty">加载中…</div></div>';
+
+  let item = {};
+  try {
+    const r = await api('/api/admin/settings');
+    if (!r.data.ok) throw new Error(r.data.error || '读取失败');
+    item = r.data.item || {};
+  } catch (e) {
+    root.innerHTML = '<div class="panel"><div class="head">欢迎词设置</div>'
+      + '<div style="padding:18px" class="empty">读取失败：' + esc(e.message) + '</div></div>';
+    return;
+  }
+
+  const renderField = (f) => {
+    const label = '<label>' + esc(f.label) + '</label>';
+    if (f.type === 'bool') {
+      const on = item[f.key] !== false && String(item[f.key]) !== 'false';
+      return '<div class="field">' + label + '<select data-set="' + f.key + '">'
+        + '<option value="true"' + (on ? ' selected' : '') + '>开启</option>'
+        + '<option value="false"' + (on ? '' : ' selected') + '>关闭</option>'
+        + '</select></div>';
+    }
+    return '<div class="field">' + label
+      + '<textarea data-set="' + f.key + '" rows="3" style="resize:vertical"'
+      + ' placeholder="留空则使用内置默认文案">' + esc(item[f.key] ?? '') + '</textarea></div>';
+  };
+
+  root.innerHTML =
+    '<div class="panel" style="margin-bottom:18px">'
+    + '<div class="head">欢迎词设置</div>'
+    + '<div style="padding:18px">'
+    + SETTINGS_FIELDS.map(renderField).join('')
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
+    + '<button class="primary" id="setSave">保存设置</button>'
+    + '<button id="setReset">清空文案（用内置默认）</button>'
+    + '</div></div></div>'
+    + '<div class="panel"><div class="head">说明</div>'
+    + '<div style="padding:18px;line-height:1.9;font-size:13px;color:var(--muted)">'
+    + '<p>· 文案留空 = 使用内置默认；「群管理」里可给单个群设置专属欢迎词/退群提示，优先于这里。</p>'
+    + '<p>· 新成员进群欢迎依赖平台事件 <code>GROUP_MEMBER_ADD</code>，需在 QQ 开放平台「事件订阅」勾选「群成员加入」；退群提示同理需勾选「群成员退出」。</p>'
+    + '<p>· 群机器人出站消息不支持 @ 第三人，文案为纯文本群消息。</p>'
+    + '<p>· 退群自动拉黑：成员退出后 openid 进入机器人黑名单，之后发言一律忽略；平台无入群拦截接口，无法阻止其重新入群（重新入群会提示管理员）。</p>'
+    + '</div></div>';
+
+  $('#setSave').addEventListener('click', async () => {
+    const payload = {};
+    $$('[data-set]', root).forEach((el) => {
+      const v = el.value;
+      payload[el.dataset.set] = el.tagName === 'SELECT' ? v === 'true' : v;
+    });
+    try {
+      const r = await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify(payload) });
+      if (!r.data.ok) { toast(r.data.error || '保存失败', true); return; }
+      toast('已保存，立即生效');
+    } catch (e) {
+      toast('保存失败：' + e.message, true);
+    }
+  });
+
+  $('#setReset').addEventListener('click', () => {
+    $$('textarea[data-set]', root).forEach((el) => { el.value = ''; });
+    toast('已清空文案，记得点「保存设置」');
+  });
 }
 
 /* ================= 启动（访问守卫） ================= */

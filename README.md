@@ -9,8 +9,8 @@ QQ 官方机器人（Webhook 模式）+ 大模型对话 + 群管理（广告过�
 | 🤖 AI 对话 | OpenAI 兼容接口（DeepSeek/智谱/Kimi/OpenAI…），按群维护上下文 |
 | 🛡 广告过滤 | 内置规则（联系方式/链接/诱导/刷屏）+ 自定义关键词/正则（环境变量 + 后台动态维护） |
 | ⚖️ 违规处罚 | 警告回复自动 @ 违规者（被动回复原生行为，先警告后撤回保证可达）→ 撤回 → 撤回+阶梯禁言（按 `AD_ACTION` 分级，最长可配 30 天） |
-| 👋 进群欢迎 | 新成员进群、机器人进群自动欢迎 |
-| 🚪 退群拉黑 | `/退群 @某人` 退群登记：群内退群提示 + 加入黑名单（黑名单成员消息一律静默忽略） |
+| 👋 进群欢迎 | 新成员进群（`GROUP_MEMBER_ADD`）、机器人被拉进群自动欢迎；**欢迎词后台可自定义**（全局 + 按群覆盖） |
+| 🚪 退群处理 | 成员退群（`GROUP_MEMBER_REMOVE`）自动发退群提示并加入黑名单；另支持管理员 `/退群 @某人` 手动登记 |
 | 🛠 管理指令 | 禁言/解禁/踢人/拉黑/退群登记/违规分/开关功能（openid 白名单） |
 | 💰 成本护栏 | 每分钟频控 + 每日调用预算上限 |
 | 🖥 管理后台 | 登录鉴权、数据概览、核心数据增删改查、搜索筛选分页、状态与权限管理、操作日志 |
@@ -106,6 +106,12 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 | `AD_MUTE_THRESHOLD` | | 第 N 次违规开始禁言，默认 3 |
 | `AD_MUTE_SECONDS` | | 首次禁言秒数，默认 600 |
 | `AD_MUTE_MAX_SECONDS` | | 阶梯封顶，默认 86400 |
+| `AD_KEYWORDS` / `AD_REGEX` | | 额外广告关键词 / 正则，逗号分隔 |
+| `WELCOME_ENABLED` | | 迎宾/送别总开关，默认 1 |
+| `WELCOME_MEMBER` | | 新成员进群欢迎词（后台「欢迎词设置」优先） |
+| `WELCOME_BOT` | | 机器人进群欢迎词 |
+| `LEAVE_NOTICE` | | 成员退群提示文案 |
+| `AUTO_BLACKLIST_ON_LEAVE` | | 成员退群自动拉黑，默认 1 |
 | `ADMIN_OPENIDS` | 管理指令 | 管理员 openid，逗号分隔 |
 | `ADMIN_USERNAME` | 后台 | 默认 `admin` |
 | `ADMIN_PASSWORD` | 后台✅ | **必填**；留空则后台登录接口禁用 |
@@ -121,10 +127,10 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 2. 「开发设置 → 回调配置」：URL 填 `https://你的域名/api/qq/webhook`
 3. 验签密钥**由 `APP_SECRET` 自动派生**（官方算法，`tools/derive-callback-key.mjs` 可查看公钥），无需额外配置
 4. 点「推送验证」→ 平台发送 op=13（`plain_token`+`event_ts`）→ 服务端用派生私钥签名返回 `{"plain_token","signature"}` → 验证通过
-5. 订阅事件（均属 `GROUP_AND_C2C_EVENT (1<<25)` intent）：
-   - **必勾**：`GROUP_AT_MESSAGE_CREATE`（群@消息）、`C2C_MESSAGE_CREATE`（私聊）、`GROUP_ADD_ROBOT`（进群欢迎）
+5. 订阅事件：
+   - **必勾**（`GROUP_AND_C2C_EVENT` 1<<25）：`GROUP_AT_MESSAGE_CREATE`（群@消息）、`C2C_MESSAGE_CREATE`（私聊）、`GROUP_ADD_ROBOT`（机器人进群欢迎）
+   - **迎宾/送别必勾**（`GROUP_MEMBER_EVENT` 1<<24）：`GROUP_MEMBER_ADD`（新成员进群→欢迎）、`GROUP_MEMBER_REMOVE`（成员退群→提示+拉黑）
    - **建议**：`GROUP_DEL_ROBOT`（移出群→标记停用）、`FRIEND_ADD`（加好友引导）、`FRIEND_DEL`
-   - 注意：**QQ 群体系没有 `GROUP_MEMBER_ADD`/`GROUP_MEMBER_REMOVE` 事件**（那是频道体系的 `GUILD_MEMBER_*`），群成员进出无法感知
 6. 把机器人拉进群，给它**群管理员**身份（禁言/撤回需要）
 
 ## 🖥 管理后台
@@ -146,6 +152,7 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 - **成员管理**：按群/状态筛选，违规次数，禁言到期时间
 - **违规记录**：查看/新增/更正/删除，含命中规则、命中内容、处置动作
 - **广告规则**：关键词 / 正则动态维护（**立即对机器人生效**），可启停
+- **欢迎词设置**：新成员进群欢迎词 / 机器人进群欢迎词 / 成员退群提示 **全部后台自定义**，含迎宾总开关、退群自动拉黑开关（保存即生效，无需重新部署）
 - **管理员与权限**：后台账号与 QQ 侧管理员 openid 管理，角色 `owner`/`admin`/`viewer`，状态 `enabled`/`disabled`
 - **操作日志**：所有后台写操作自动留痕（操作人、角色、动作、目标、详情）
 

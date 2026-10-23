@@ -15,6 +15,8 @@ import { memoryDriver } from '../src/store.js';
 import { signSession, SESSION_COOKIE } from '../src/admin/auth.js';
 import { onRequest as aitestHandler } from '../cloud-functions/api/admin/aitest.js';
 import { onRequest as msgtestHandler } from '../cloud-functions/api/admin/msgtest.js';
+import { onRequest as settingsHandler } from '../cloud-functions/api/admin/settings.js';
+import { saveSettings, touchGroup, touchMember } from '../src/records.js';
 import { verifyAppIdCandidate } from '../src/qqapi.js';
 
 const ncrypto = (await import('node:crypto')).default;
@@ -392,6 +394,108 @@ await t('好友删除：静默', async () => {
 await t('机器人进群欢迎', async () => {
   const r = await handleMessage(evt('GROUP_ADD_ROBOT', { group_openid: 'G1' }), baseEnv);
   assert.match(r.content, /大家好/);
+});
+
+/* ---------------- 成员加入 / 退出 ---------------- */
+await t('新成员进群：发欢迎语 + 自动建档', async () => {
+  const r = await handleMessage(evt('GROUP_MEMBER_ADD', {
+    group_openid: 'G_W1', member_openid: 'M_NEW1',
+  }), baseEnv);
+  assert.ok(r && r.content, '应有欢迎语');
+  assert.match(r.content, /欢迎/);
+  const kv = await createKV(baseEnv);
+  const member = await createRepo(kv).get(COLLECTIONS.MEMBERS, 'G_W1:M_NEW1');
+  assert.ok(member, '成员应已建档');
+  assert.equal(member.status, 'normal');
+});
+await t('后台自定义欢迎词全局生效', async () => {
+  const kv = await createKV(baseEnv);
+  await saveSettings(kv, { memberWelcome: '🎊 自定义欢迎词' });
+  const r = await handleMessage(evt('GROUP_MEMBER_ADD', {
+    group_openid: 'G_W2', member_openid: 'M_NEW2',
+  }), baseEnv);
+  assert.equal(r.content, '🎊 自定义欢迎词');
+});
+await t('群级欢迎词优先于全局设置', async () => {
+  const kv = await createKV(baseEnv);
+  await saveSettings(kv, { memberWelcome: '全局词' });
+  await touchGroup(kv, 'G_W3', {});
+  await touchGroup(kv, 'G_W3', { memberWelcome: '群专属词' });
+  const r = await handleMessage(evt('GROUP_MEMBER_ADD', {
+    group_openid: 'G_W3', member_openid: 'M_NEW3',
+  }), baseEnv);
+  assert.equal(r.content, '群专属词');
+});
+await t('迎宾总开关关闭后不发言', async () => {
+  const kv = await createKV(baseEnv);
+  await saveSettings(kv, { welcomeEnabled: false });
+  const r = await handleMessage(evt('GROUP_MEMBER_ADD', {
+    group_openid: 'G_W4', member_openid: 'M_NEW4',
+  }), baseEnv);
+  assert.equal(r, null);
+});
+await t('成员退群：提示 + 自动拉黑 + 后续消息忽略', async () => {
+  const kv = await createKV(baseEnv);
+  await touchMember(kv, 'G_L1', 'M_LEAVE', { status: 'normal' });
+  const r = await handleMessage(evt('GROUP_MEMBER_REMOVE', {
+    group_openid: 'G_L1', member_openid: 'M_LEAVE',
+  }), baseEnv);
+  assert.ok(r && r.content, '应有退群提示');
+  const member = await createRepo(kv).get(COLLECTIONS.MEMBERS, 'G_L1:M_LEAVE');
+  assert.equal(member.status, 'blacklisted');
+  const after = await handleMessage(groupMsg('我回来了', 'M_LEAVE', 'G_L1', 'M_L_2'), baseEnv);
+  assert.equal(after, null, '黑名单成员发言应被忽略');
+});
+await t('退群自动拉黑可关闭（只发提示）', async () => {
+  const kv = await createKV(baseEnv);
+  await saveSettings(kv, { autoBlacklistOnLeave: false });
+  await touchMember(kv, 'G_L2', 'M_LEAVE2', { status: 'normal' });
+  const r = await handleMessage(evt('GROUP_MEMBER_REMOVE', {
+    group_openid: 'G_L2', member_openid: 'M_LEAVE2',
+  }), baseEnv);
+  assert.ok(r && r.content, '应有退群提示');
+  const member = await createRepo(kv).get(COLLECTIONS.MEMBERS, 'G_L2:M_LEAVE2');
+  assert.equal(member.status, 'normal', '不应被拉黑');
+});
+await t('黑名单成员重新入群：保留黑名单并提示管理员', async () => {
+  const kv = await createKV(baseEnv);
+  await touchMember(kv, 'G_R1', 'M_BACK', { status: 'blacklisted' });
+  const r = await handleMessage(evt('GROUP_MEMBER_ADD', {
+    group_openid: 'G_R1', member_openid: 'M_BACK',
+  }), baseEnv);
+  assert.match(r.content, /黑名单/);
+  const member = await createRepo(kv).get(COLLECTIONS.MEMBERS, 'G_R1:M_BACK');
+  assert.equal(member.status, 'blacklisted', '黑名单状态不应被重置');
+});
+
+/* ---------------- 设置接口 ---------------- */
+console.log('\n[欢迎词设置接口]');
+await t('settings 未登录 → 401', async () => {
+  const res = await settingsHandler({ request: new Request('https://x/api/admin/settings'), env: baseEnv });
+  assert.equal(res.status, 401);
+});
+await t('settings PUT 保存并读回（仅白名单字段）', async () => {
+  const token = await signSession({ username: 'admin', role: 'owner' }, 'sess-secret', 3600);
+  const env = { ...baseEnv, ADMIN_SESSION_SECRET: 'sess-secret' };
+  const put = await settingsHandler({
+    request: new Request('https://x/api/admin/settings', {
+      method: 'PUT', headers: { cookie: `${SESSION_COOKIE}=${token}` },
+      body: JSON.stringify({ memberWelcome: '后台自定义', evil: 'x' }),
+    }),
+    env,
+  });
+  const pj = await put.json();
+  assert.equal(pj.ok, true);
+  const get = await settingsHandler({
+    request: new Request('https://x/api/admin/settings', {
+      headers: { cookie: `${SESSION_COOKIE}=${token}` },
+    }),
+    env,
+  });
+  const gj = await get.json();
+  assert.equal(gj.item.memberWelcome, '后台自定义');
+  assert.equal(gj.item.evil, undefined, '非白名单字段不应写入');
+  assert.equal(gj.item.welcomeEnabled, true, '缺省值为开启');
 });
 
 /* ================= 入口 core ================= */

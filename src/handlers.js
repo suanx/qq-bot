@@ -12,6 +12,7 @@ import { createKV } from './kv.js';
 import {
   touchGroup, touchMember, logViolation, bumpStat, logAction,
   getGroupFlag, setGroupFlag, loadAdminOpenids, loadAdRules,
+  getGroupDoc, getMemberDoc, loadSettings,
 } from './records.js';
 import * as ai from './ai.js';
 
@@ -327,6 +328,47 @@ async function handleAIChat(ctx, cfg, kv) {
 
 /* ---------------- 主流水线 ---------------- */
 
+/* ---------------- 迎宾 / 送别文案（后台可自定义） ---------------- */
+
+const DEFAULT_MEMBER_WELCOME = '🎉 欢迎新成员加入本群！\n有问题可以直接 @我 提问，发送「帮助」查看指令。';
+const DEFAULT_BOT_WELCOME = '大家好！我是 AI 助手机器人 🤖\n直接 @我 提问即可对话；发送「帮助」查看指令。';
+const DEFAULT_LEAVE_NOTICE = '👋 有成员退出了群聊，欢迎下次再来～';
+
+const ENV_NOTICE_MAP = {
+  memberWelcome: 'WELCOME_MEMBER',
+  botWelcome: 'WELCOME_BOT',
+  leaveNotice: 'LEAVE_NOTICE',
+};
+
+/**
+ * 文案取值优先级：群级自定义 > 后台全局设置 > 环境变量 > 内置默认
+ * @param {'memberWelcome'|'botWelcome'|'leaveNotice'} field
+ */
+async function resolveNotice(kv, cfg, groupOpenid, field, fallback) {
+  try {
+    const group = await getGroupDoc(kv, groupOpenid);
+    const gv = group && group[field];
+    if (gv && String(gv).trim()) return String(gv).trim();
+  } catch (e) { console.warn('读取群级文案失败:', e.message); }
+  try {
+    const s = await loadSettings(kv);
+    if (s[field] && String(s[field]).trim()) return String(s[field]).trim();
+  } catch (e) { console.warn('读取全局文案设置失败:', e.message); }
+  const ev = cfg[ENV_NOTICE_MAP[field]];
+  if (ev && String(ev).trim()) return String(ev).trim();
+  return fallback;
+}
+
+/** 开关取值：后台设置 > 环境变量 */
+async function noticeToggle(kv, cfg, name) {
+  try {
+    const s = await loadSettings(kv);
+    if (s[name] !== undefined && s[name] !== null && s[name] !== '') return !!s[name];
+  } catch { /* 忽略，走环境变量默认 */ }
+  if (name === 'autoBlacklistOnLeave') return !!cfg.AUTO_BLACKLIST_ON_LEAVE;
+  return !!cfg.WELCOME_ENABLED;
+}
+
 /** 处理一条消息事件，返回回复计划或 null（不回复） */
 export async function handleMessage(evt, rawEnv) {
   const cfg = loadConfig(rawEnv);
@@ -337,13 +379,66 @@ export async function handleMessage(evt, rawEnv) {
   const author = d.author || {};
 
   // ---- 非消息事件 ----
+  // 机器人被拉进群：发欢迎语（文案可在后台「欢迎词设置」自定义）
   if (type === 'GROUP_ADD_ROBOT') {
     await touchGroup(kv, d.group_openid, { joinedAt: new Date().toISOString() });
+    if (!(await noticeToggle(kv, cfg, 'welcomeEnabled'))) return null;
     return {
       chatType: 'group', targetId: d.group_openid, msgId: null, msgSeq: 1,
-      content: '大家好！我是 AI 助手机器人 🤖\n直接 @我 提问即可对话；发送「帮助」查看指令。',
+      content: await resolveNotice(kv, cfg, d.group_openid, 'botWelcome', DEFAULT_BOT_WELCOME),
     };
   }
+
+  // 新成员进群：欢迎 + 建档（GROUP_MEMBER_ADD，Intent GROUP_MEMBER_EVENT 1<<24，
+  // 需在 QQ 开放平台「事件订阅」勾选「群成员加入」后才会推送）
+  if (type === 'GROUP_MEMBER_ADD') {
+    const g = d.group_openid;
+    const m = d.member_openid || d.user_openid || '';
+    if (!g) return null;
+    if (m) {
+      const prev = await getMemberDoc(kv, g, m).catch(() => null);
+      if (prev && prev.status === 'blacklisted') {
+        // 黑名单成员重新入群：保留黑名单状态并提示管理员（平台无入群拦截 API）
+        await logAction(kv, {
+          action: 'blacklist_rejoin', target: `${g}:${m}`,
+          detail: '黑名单成员重新入群',
+        }).catch(() => {});
+        return {
+          chatType: 'group', targetId: g, msgId: null, msgSeq: 1,
+          content: '⚠️ 一名黑名单成员重新加入了本群，请管理员注意核实（平台不提供入群拦截接口）。',
+        };
+      }
+      await touchMember(kv, g, m, { status: 'normal' }).catch(() => {});
+    }
+    if (!(await noticeToggle(kv, cfg, 'welcomeEnabled'))) return null;
+    return {
+      chatType: 'group', targetId: g, msgId: null, msgSeq: 1,
+      content: await resolveNotice(kv, cfg, g, 'memberWelcome', DEFAULT_MEMBER_WELCOME),
+    };
+  }
+
+  // 成员退出/被移出群：发退群提示 +（默认）自动拉黑
+  if (type === 'GROUP_MEMBER_REMOVE') {
+    const g = d.group_openid;
+    const m = d.member_openid || d.user_openid || '';
+    if (!g || !m) return null;
+    if (await noticeToggle(kv, cfg, 'autoBlacklistOnLeave')) {
+      try {
+        await touchMember(kv, g, m, { status: 'blacklisted' });
+        await logAction(kv, {
+          action: 'blacklist_auto', target: `${g}:${m}`, detail: '成员退群，自动加入机器人黑名单',
+        });
+      } catch (e) {
+        console.warn('退群自动拉黑失败:', e.message);
+      }
+    }
+    if (!(await noticeToggle(kv, cfg, 'welcomeEnabled'))) return null;
+    return {
+      chatType: 'group', targetId: g, msgId: null, msgSeq: 1,
+      content: await resolveNotice(kv, cfg, g, 'leaveNotice', DEFAULT_LEAVE_NOTICE),
+    };
+  }
+
   // 机器人被移出群聊：标记群为停用（保留数据供审计），不回复
   if (type === 'GROUP_DEL_ROBOT') {
     if (d.group_openid) {
