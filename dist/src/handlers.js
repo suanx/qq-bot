@@ -7,11 +7,13 @@
 import { loadConfig } from './config.js';
 import { checkAd } from './adfilter.js';
 import { recordViolation, decideAction, clearViolations, getViolations } from './moderation.js';
-import { replyMessage, recallGroupMessage, muteMember, kickMembers, blacklistMember } from './qqapi.js';
+import { replyMessage, recallGroupMessage, muteMember, kickMembers, blacklistMember, approveJoinRequest } from './qqapi.js';
 import { createKV } from './kv.js';
 import {
-  touchGroup, touchMember, logViolation, bumpStat,
+  touchGroup, touchMember, logViolation, bumpStat, logAction,
   getGroupFlag, setGroupFlag, loadAdminOpenids, loadAdRules,
+  getGroupDoc, getMemberDoc, loadSettings,
+  saveJoinRequest, updateJoinRequest, joinRequestId,
 } from './records.js';
 import * as ai from './ai.js';
 
@@ -74,6 +76,7 @@ function adminHelp() {
     '· /撤回 —— 引用/回复要撤回的消息后发送',
     '· /踢 @某人 —— 移出群聊（需内邀权限）',
     '· /拉黑 @某人 —— 加入群黑名单（需内邀权限）',
+    '· /退群 @某人 —— 退群登记：发退群提示并加入黑名单',
     '· /违规分 @某人 —— 查询某人违规计数',
     '· /清违规 @某人 —— 清零违规计数',
   ].join('\n');
@@ -91,7 +94,7 @@ export function parseDuration(s) {
 
 /** 是否为管理员指令前缀 */
 export function isAdminCommand(text) {
-  return /^\/?(广告开|广告关|AI开|AI关|禁言|解禁|踢|拉黑|违规分|清违规|管理|撤回)/i
+  return /^\/?(广告开|广告关|AI开|AI关|禁言|解禁|踢|拉黑|退群|违规分|清违规|管理|撤回)/i
     .test(String(text || '').trim());
 }
 
@@ -168,14 +171,45 @@ async function handleAdminCommand(evt, ctx, cfg, kv) {
     }
   }
   if (/^\/?拉黑/.test(text)) {
-    if (!target) return '用法：/拉黑 @某人（需先移出群）';
+    if (!target) return '用法：/拉黑 @某人';
+    let official = false;
     try {
       await blacklistMember(groupOpenid, target, true, cfg);
-      await touchMember(kv, groupOpenid, target, { status: 'blacklisted' });
-      return '🚫 已加入群黑名单';
+      official = true;
     } catch (e) {
-      return `拉黑失败：${/11253|权限/.test(e.message) ? '该接口为内邀白名单能力，需联系平台申请' : e.message}`;
+      // 官方拉黑接口为内邀白名单能力（11253 等），回落本地黑名单
+      console.warn('官方拉黑失败，回落本地黑名单:', e.message);
     }
+    await touchMember(kv, groupOpenid, target, { status: 'blacklisted' });
+    await logAction(kv, {
+      actor: ctx.sender, actorRole: 'admin',
+      action: official ? 'blacklist' : 'blacklist_local',
+      target: `${groupOpenid}/${target}`,
+      detail: official ? '加入群黑名单（官方接口）' : '加入机器人黑名单（官方接口未开放，本地生效）',
+    });
+    return official
+      ? '🚫 已加入群黑名单'
+      : '🚫 已加入机器人黑名单（平台官方接口未开放，机器人将无视其全部消息）';
+  }
+  // 退群登记：群内发退群提示并加入黑名单。
+  // 平台无「成员退群」事件（群聊体系仅推送机器人自身被移出），无法自动感知，
+  // 由管理员手动触发；黑名单后该成员若再入群发言，机器人一律静默忽略。
+  // 注：群机器人出站消息不支持 @ 第三人（嵌入标签原样显示，平台硬边界），
+  // 被动回复只会自动 @ 被回复者（此处是发指令的管理员），故退群提示用纯文本。
+  if (/^\/?退群/.test(text)) {
+    if (!target) return '用法：/退群 @某人（发送退群提示并加入黑名单）';
+    await touchMember(kv, groupOpenid, target, { status: 'blacklisted' });
+    await logAction(kv, {
+      actor: ctx.sender, actorRole: 'admin',
+      action: 'leave_register',
+      target: `${groupOpenid}/${target}`,
+      detail: '退群登记：加入机器人黑名单',
+    });
+    return [
+      '👋 有成员已退出群聊。',
+      '该成员已加入机器人黑名单，其后续消息将被忽略；',
+      '为防止其再次入群，请管理员使用群管理功能将其移出。',
+    ].join('\n');
   }
 
   // 违规分
@@ -208,21 +242,28 @@ async function handleAdViolation(evt, ctx, cfg, kv) {
   const level = ACTION_LEVEL[String(cfg.AD_ACTION || '').toLowerCase()] ?? 2;
 
   const actions = [];
-  if (level >= 1) {
-    try {
-      await recallGroupMessage(groupOpenid, ctx.msgId, cfg);
-      actions.push('已撤回');
-    } catch (e) {
-      console.warn('撤回失败:', e.message);
-    }
-  }
+  // 撤回不再在此处立即执行：警告回复以违规消息的 msg_id 做被动回复，
+  // 若先撤回，引用的消息不存在会导致回复发送失败。
+  // 改为标记 recallMsgId，由 core.js 在警告回复成功后再撤回（先警告后撤回）。
+  if (level >= 1 && ctx.msgId) ctx.recallMsgId = ctx.msgId;
   if (level >= 2 && action === 'mute' && muteSeconds > 0) {
     try {
       await muteMember(groupOpenid, user, muteSeconds, cfg);
       actions.push(`禁言 ${fmtDuration(muteSeconds)}`);
+      await logAction(kv, {
+        action: 'mute',
+        target: `${groupOpenid}/${user}`,
+        detail: `第${count}次违规禁言 ${fmtDuration(muteSeconds)}`,
+      });
   } catch (e) {
       console.warn('禁言失败:', e.message);
       actions.push('禁言失败（机器人需要群管理员身份）');
+      // 失败原因落日志，后台「操作日志」可直接查看（此前只 console.warn 生产不可见）
+      await logAction(kv, {
+        action: 'mute_failed',
+        target: `${groupOpenid}/${user}`,
+        detail: `第${count}次违规禁言失败：${e.message}`,
+      });
     }
   }
 
@@ -250,7 +291,10 @@ async function handleAdViolation(evt, ctx, cfg, kv) {
 
   if (count >= 10) console.warn(`[moderation] ${groupOpenid}/${user} 违规已达 ${count} 次，建议人工处理`);
 
-  return `⚠️ @${user} 检测到广告/违规内容（规则：${ctx.adHit.rule}），第 ${count} 次违规，${actions.join('、') || '请遵守群规'}！`;
+  // 警告文案：本回复是引用违规消息的被动回复，客户端会自动在开头 @ 违规者
+  // （平台硬边界：群机器人出站消息不支持 @ 第三人，嵌入标签会原样显示，故不写 @ 标签）
+  const actionText = actions.length ? `，${actions.join('、')}` : (level >= 1 ? '，消息将被撤回' : '');
+  return `⚠️ 你发送的内容违反群规（命中规则：${ctx.adHit.rule}，第 ${count} 次）${actionText}，请遵守群规！`;
 }
 
 /* ---------------- AI 对话 ---------------- */
@@ -285,6 +329,67 @@ async function handleAIChat(ctx, cfg, kv) {
 
 /* ---------------- 主流水线 ---------------- */
 
+/* ---------------- 迎宾 / 送别文案（后台可自定义） ---------------- */
+
+const DEFAULT_MEMBER_WELCOME = '🎉 欢迎新成员加入本群！\n有问题可以直接 @我 提问，发送「帮助」查看指令。';
+const DEFAULT_BOT_WELCOME = '大家好！我是 AI 助手机器人 🤖\n直接 @我 提问即可对话；发送「帮助」查看指令。';
+const DEFAULT_LEAVE_NOTICE = '👋 有成员退出了群聊，欢迎下次再来～';
+const DEFAULT_JOIN_NOTICE = '📥 收到入群申请：{name}\n来源：{source} · 时间：{time}{tips}\n请管理员在后台「入群申请」中审批（通过 / 拒绝）。';
+const DEFAULT_JOIN_REJECT_REASON = '该账号在机器人黑名单中，暂不接受入群';
+
+const JOIN_SOURCE_LABEL = { self_apply: '主动申请', invited: '被邀请' };
+
+const ENV_NOTICE_MAP = {
+  memberWelcome: 'WELCOME_MEMBER',
+  botWelcome: 'WELCOME_BOT',
+  leaveNotice: 'LEAVE_NOTICE',
+  joinNotice: 'JOIN_NOTICE',
+};
+
+/** 模板占位符替换：{name} / {openid} / {source} / {time} / {tips} */
+export function fillTemplate(tpl, vars = {}) {
+  return String(tpl || '').replace(/\{(\w+)\}/g,
+    (all, k) => (vars[k] === undefined || vars[k] === null ? all : String(vars[k])));
+}
+
+/** RFC3339 -> 北京时间 YYYY-MM-DD HH:mm（不可解析返回空串） */
+function fmtClock(iso) {
+  const t = Date.parse(String(iso || ''));
+  if (!Number.isFinite(t)) return '';
+  const b = new Date(t + 8 * 3600 * 1000);
+  return `${b.getUTCFullYear()}-${p2(b.getUTCMonth() + 1)}-${p2(b.getUTCDate())} `
+    + `${p2(b.getUTCHours())}:${p2(b.getUTCMinutes())}`;
+}
+
+/**
+ * 文案取值优先级：群级自定义 > 后台全局设置 > 环境变量 > 内置默认
+ * @param {'memberWelcome'|'botWelcome'|'leaveNotice'} field
+ */
+async function resolveNotice(kv, cfg, groupOpenid, field, fallback) {
+  try {
+    const group = await getGroupDoc(kv, groupOpenid);
+    const gv = group && group[field];
+    if (gv && String(gv).trim()) return String(gv).trim();
+  } catch (e) { console.warn('读取群级文案失败:', e.message); }
+  try {
+    const s = await loadSettings(kv);
+    if (s[field] && String(s[field]).trim()) return String(s[field]).trim();
+  } catch (e) { console.warn('读取全局文案设置失败:', e.message); }
+  const ev = cfg[ENV_NOTICE_MAP[field]];
+  if (ev && String(ev).trim()) return String(ev).trim();
+  return fallback;
+}
+
+/** 开关取值：后台设置 > 环境变量 */
+async function noticeToggle(kv, cfg, name) {
+  try {
+    const s = await loadSettings(kv);
+    if (s[name] !== undefined && s[name] !== null && s[name] !== '') return !!s[name];
+  } catch { /* 忽略，走环境变量默认 */ }
+  if (name === 'autoBlacklistOnLeave') return !!cfg.AUTO_BLACKLIST_ON_LEAVE;
+  return !!cfg.WELCOME_ENABLED;
+}
+
 /** 处理一条消息事件，返回回复计划或 null（不回复） */
 export async function handleMessage(evt, rawEnv) {
   const cfg = loadConfig(rawEnv);
@@ -295,13 +400,160 @@ export async function handleMessage(evt, rawEnv) {
   const author = d.author || {};
 
   // ---- 非消息事件 ----
+  // 机器人被拉进群：发欢迎语（文案可在后台「欢迎词设置」自定义）
   if (type === 'GROUP_ADD_ROBOT') {
     await touchGroup(kv, d.group_openid, { joinedAt: new Date().toISOString() });
+    if (!(await noticeToggle(kv, cfg, 'welcomeEnabled'))) return null;
     return {
       chatType: 'group', targetId: d.group_openid, msgId: null, msgSeq: 1,
-      content: '大家好！我是 AI 助手机器人 🤖\n直接 @我 提问即可对话；发送「帮助」查看指令。',
+      content: await resolveNotice(kv, cfg, d.group_openid, 'botWelcome', DEFAULT_BOT_WELCOME),
     };
   }
+
+  // 新成员进群：欢迎 + 建档（GROUP_MEMBER_ADD，Intent GROUP_MEMBER_EVENT 1<<24，
+  // 需在 QQ 开放平台「事件订阅」勾选「群成员加入」后才会推送）
+  if (type === 'GROUP_MEMBER_ADD') {
+    const g = d.group_openid;
+    const m = d.member_openid || d.user_openid || '';
+    if (!g) return null;
+    if (m) {
+      // 事件到达即落日志：便于后台自证「进群事件是否真的推送过来了」
+      await logAction(kv, {
+        action: 'member_join', target: `${g}:${m}`,
+        detail: '收到 GROUP_MEMBER_ADD 事件（新成员进群）',
+      }).catch(() => {});
+      const prev = await getMemberDoc(kv, g, m).catch(() => null);
+      if (prev && prev.status === 'blacklisted') {
+        // 黑名单成员重新入群：保留黑名单状态并提示管理员（平台无入群拦截 API）
+        await logAction(kv, {
+          action: 'blacklist_rejoin', target: `${g}:${m}`,
+          detail: '黑名单成员重新入群',
+        }).catch(() => {});
+        return {
+          chatType: 'group', targetId: g, msgId: null, msgSeq: 1,
+          content: '⚠️ 一名黑名单成员重新加入了本群，请管理员注意核实（平台不提供入群拦截接口）。',
+        };
+      }
+      await touchMember(kv, g, m, { status: 'normal' }).catch(() => {});
+    }
+    if (!(await noticeToggle(kv, cfg, 'welcomeEnabled'))) return null;
+    return {
+      chatType: 'group', targetId: g, msgId: null, msgSeq: 1,
+      content: await resolveNotice(kv, cfg, g, 'memberWelcome', DEFAULT_MEMBER_WELCOME),
+    };
+  }
+
+  // 成员退出/被移出群：发退群提示 +（默认）自动拉黑
+  if (type === 'GROUP_MEMBER_REMOVE') {
+    const g = d.group_openid;
+    const m = d.member_openid || d.user_openid || '';
+    if (!g || !m) return null;
+    await logAction(kv, {
+      action: 'member_leave', target: `${g}:${m}`,
+      detail: '收到 GROUP_MEMBER_REMOVE 事件（成员退出）',
+    }).catch(() => {});
+    if (await noticeToggle(kv, cfg, 'autoBlacklistOnLeave')) {
+      try {
+        await touchMember(kv, g, m, { status: 'blacklisted' });
+        await logAction(kv, {
+          action: 'blacklist_auto', target: `${g}:${m}`, detail: '成员退群，自动加入机器人黑名单',
+        });
+      } catch (e) {
+        console.warn('退群自动拉黑失败:', e.message);
+      }
+    }
+    if (!(await noticeToggle(kv, cfg, 'welcomeEnabled'))) return null;
+    return {
+      chatType: 'group', targetId: g, msgId: null, msgSeq: 1,
+      content: await resolveNotice(kv, cfg, g, 'leaveNotice', DEFAULT_LEAVE_NOTICE),
+    };
+  }
+
+  // 用户申请加群：GROUP_JOIN_REQUEST（Intent GROUP_MEMBER_EVENT 1<<24）
+  // 平台限制：只有机器人是群管理员时才会推送；这是「黑名单拦在门外」唯一可靠的时机——
+  // 可 decline 并把申请人写入平台群黑名单，比入群后再处理有效得多。
+  if (type === 'GROUP_JOIN_REQUEST') {
+    const g = d.group_openid;
+    const m = d.member_openid || d.user_openid || '';
+    if (!g || !m) return null;
+    const settings = await loadSettings(kv).catch(() => ({}));
+    if (settings.joinRequestEnabled === false) return null;
+
+    const name = String(d.username || '').trim() || m;
+    const jrId = String(d.join_request_id || '');
+    const riskTips = String(d.risk_tips || '');
+    const applySource = String(d.apply_source || '');
+    const applyAt = d.apply_at ? String(d.apply_at) : new Date().toISOString();
+    const recId = joinRequestId(g, m);
+
+    const prev = await getMemberDoc(kv, g, m).catch(() => null);
+    const blacklisted = !!(prev && prev.status === 'blacklisted');
+    // 黑名单：自动拒绝 + 写入平台群黑名单（默认开启）
+    const autoReject = blacklisted && settings.joinAutoRejectBlacklist !== false;
+    // 可选自动通过：非黑名单、无风险提示、非机器人账号（默认关闭，避免误放人）
+    const autoApprove = !blacklisted && settings.joinAutoApprove === true && !d.bot && !riskTips;
+
+    await saveJoinRequest(kv, {
+      groupOpenid: g, memberOpenid: m, username: name, joinRequestId: jrId,
+      applySource, invitedBy: String(d.invited_by || ''), riskTips,
+      isBot: !!d.bot, applyAt, status: 'pending',
+    }).catch((e) => console.warn('记录入群申请失败:', e.message));
+
+    if (autoReject) {
+      const reason = String(settings.joinRejectReason || '').trim() || DEFAULT_JOIN_REJECT_REASON;
+      try {
+        await approveJoinRequest(g, m, 'decline', cfg, {
+          joinRequestId: jrId, rejectReason: reason, addToBlacklist: true,
+        });
+        await updateJoinRequest(kv, recId, { status: 'declined', handledBy: 'auto:blacklist', reason })
+          .catch(() => {});
+        await logAction(kv, {
+          action: 'join_declined', target: `${g}:${m}`,
+          detail: `黑名单申请人自动拒绝并写入群黑名单：${name}`,
+        }).catch(() => {});
+      } catch (e) {
+        await logAction(kv, {
+          action: 'join_decline_failed', target: `${g}:${m}`,
+          detail: `自动拒绝失败：${e.message}（需机器人是群管理员且接口已开通）`,
+        }).catch(() => {});
+      }
+      return null; // 静默拒绝，不在群里刷提示
+    }
+
+    if (autoApprove) {
+      try {
+        await approveJoinRequest(g, m, 'approve', cfg, { joinRequestId: jrId });
+        await updateJoinRequest(kv, recId, { status: 'approved', handledBy: 'auto' }).catch(() => {});
+        await touchMember(kv, g, m, { status: 'normal', nickname: name }).catch(() => {});
+        await logAction(kv, {
+          action: 'join_approved', target: `${g}:${m}`, detail: `自动通过入群申请：${name}`,
+        }).catch(() => {});
+      } catch (e) {
+        await logAction(kv, {
+          action: 'join_approve_failed', target: `${g}:${m}`, detail: `自动通过失败：${e.message}`,
+        }).catch(() => {});
+      }
+      return null;
+    }
+
+    // 默认：只通知管理员（群里发一条提示，去后台审批）
+    await logAction(kv, {
+      action: 'join_request', target: `${g}:${m}`,
+      detail: `收到入群申请：${name}${riskTips ? `（风险提示：${riskTips}）` : ''}`,
+    }).catch(() => {});
+    const tpl = await resolveNotice(kv, cfg, g, 'joinNotice', DEFAULT_JOIN_NOTICE);
+    return {
+      chatType: 'group', targetId: g, msgId: null, msgSeq: 1,
+      content: fillTemplate(tpl, {
+        name,
+        openid: m,
+        source: JOIN_SOURCE_LABEL[applySource] || applySource || '未知',
+        time: fmtClock(applyAt) || '-',
+        tips: riskTips ? `\n⚠️ 平台风险提示：${riskTips}` : '',
+      }),
+    };
+  }
+
   // 机器人被移出群聊：标记群为停用（保留数据供审计），不回复
   if (type === 'GROUP_DEL_ROBOT') {
     if (d.group_openid) {
@@ -332,11 +584,16 @@ export async function handleMessage(evt, rawEnv) {
   const content = stripMentions(rawContent);
   if (!content) return null;
 
+  // 修复：群消息事件的发言人标识是 author.member_openid（user_openid 仅 c2c 事件有），
+  // 此前只读 user_openid 导致群里全部记成 anonymous，管理员判定/成员登记/违规记录全部失效
+  const senderId = author.user_openid || author.member_openid
+    || d.user_openid || d.member_openid || null;
+
   const groupOpenid = d.group_openid || null;
   const ctx = {
     chatType: isC2C ? 'c2c' : 'group',
-    targetId: groupOpenid || author.user_openid,
-    sender: author.user_openid || 'anonymous',
+    targetId: groupOpenid || senderId,
+    sender: senderId || 'anonymous',
     text: content,
     msgId: d.id,
     mentions,
@@ -345,7 +602,16 @@ export async function handleMessage(evt, rawEnv) {
   ctx.scope = ctx.chatType === 'group' ? `g:${ctx.targetId}` : `u:${ctx.sender}`;
 
   await bumpStat(kv, 'messages');
-  if (groupOpenid) await touchGroup(kv, groupOpenid);
+  if (groupOpenid) {
+    await touchGroup(kv, groupOpenid);
+    // 登记发言人进成员库（首次自动建档），后台「成员管理」可查 openid
+    const memberDoc = await touchMember(kv, groupOpenid, ctx.sender);
+    // 本地黑名单：被拉黑成员的消息一律静默忽略（官方拉黑接口为内邀能力，此处兜底生效）
+    if (memberDoc && memberDoc.status === 'blacklisted') {
+      console.log(`[blacklist] 忽略黑名单成员消息 ${groupOpenid}/${ctx.sender}`);
+      return null;
+    }
+  }
 
   // 1) 管理指令（仅管理员）
   if (isAdminCommand(ctx.text) && await isAdmin(cfg, kv, ctx.sender)) {
@@ -354,10 +620,19 @@ export async function handleMessage(evt, rawEnv) {
     const r = await handleAdminCommand(evt, ctx, cfg, kv);
     if (r) return { ...ctx, content: r };
   }
+  // 1b) 明确是管理指令语法（以 / 开头）但无权限：给出显式反馈而非静默落入 AI 聊天
+  //     （不带 / 的中文关键词如「踢足球」不提示，避免误伤普通聊天）
+  else if (isAdminCommand(ctx.text) && /^\//.test(ctx.text.trim())) {
+    return {
+      ...ctx,
+      content: '⛔ 该指令仅群管理员可用。若你应是管理员，请让群主在后台「管理员与权限」中登记你当前账号的 openid。',
+    };
+  }
 
-  // 2) 广告过滤（仅群聊）
+  // 2) 广告过滤（仅群聊；管理员豁免）
   if (cfg.AD_FILTER_ENABLED && ctx.chatType === 'group'
-      && await getGroupFlag(kv, ctx.targetId, 'adfilter', true)) {
+      && await getGroupFlag(kv, ctx.targetId, 'adfilter', true)
+      && !(await isAdmin(cfg, kv, ctx.sender))) {
     // 合并后台动态规则与环境变量规则
     const dynamicRules = await loadAdRules(kv);
     const hit = checkAd(ctx.text, cfg, dynamicRules);

@@ -120,6 +120,8 @@ export const COLLECTIONS = {
   RULES: 'rules',
   ADMINS: 'admins',
   LOGS: 'logs',
+  SETTINGS: 'settings',   // 全局配置（欢迎词、退群提示等）
+  JOIN_REQUESTS: 'joinrequests', // 入群申请（GROUP_JOIN_REQUEST 事件落库）
 };
 
 export default createRepo;

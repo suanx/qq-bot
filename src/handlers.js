@@ -7,12 +7,13 @@
 import { loadConfig } from './config.js';
 import { checkAd } from './adfilter.js';
 import { recordViolation, decideAction, clearViolations, getViolations } from './moderation.js';
-import { replyMessage, recallGroupMessage, muteMember, kickMembers, blacklistMember } from './qqapi.js';
+import { replyMessage, recallGroupMessage, muteMember, kickMembers, blacklistMember, approveJoinRequest } from './qqapi.js';
 import { createKV } from './kv.js';
 import {
   touchGroup, touchMember, logViolation, bumpStat, logAction,
   getGroupFlag, setGroupFlag, loadAdminOpenids, loadAdRules,
   getGroupDoc, getMemberDoc, loadSettings,
+  saveJoinRequest, updateJoinRequest, joinRequestId,
 } from './records.js';
 import * as ai from './ai.js';
 
@@ -333,12 +334,32 @@ async function handleAIChat(ctx, cfg, kv) {
 const DEFAULT_MEMBER_WELCOME = '🎉 欢迎新成员加入本群！\n有问题可以直接 @我 提问，发送「帮助」查看指令。';
 const DEFAULT_BOT_WELCOME = '大家好！我是 AI 助手机器人 🤖\n直接 @我 提问即可对话；发送「帮助」查看指令。';
 const DEFAULT_LEAVE_NOTICE = '👋 有成员退出了群聊，欢迎下次再来～';
+const DEFAULT_JOIN_NOTICE = '📥 收到入群申请：{name}\n来源：{source} · 时间：{time}{tips}\n请管理员在后台「入群申请」中审批（通过 / 拒绝）。';
+const DEFAULT_JOIN_REJECT_REASON = '该账号在机器人黑名单中，暂不接受入群';
+
+const JOIN_SOURCE_LABEL = { self_apply: '主动申请', invited: '被邀请' };
 
 const ENV_NOTICE_MAP = {
   memberWelcome: 'WELCOME_MEMBER',
   botWelcome: 'WELCOME_BOT',
   leaveNotice: 'LEAVE_NOTICE',
+  joinNotice: 'JOIN_NOTICE',
 };
+
+/** 模板占位符替换：{name} / {openid} / {source} / {time} / {tips} */
+export function fillTemplate(tpl, vars = {}) {
+  return String(tpl || '').replace(/\{(\w+)\}/g,
+    (all, k) => (vars[k] === undefined || vars[k] === null ? all : String(vars[k])));
+}
+
+/** RFC3339 -> 北京时间 YYYY-MM-DD HH:mm（不可解析返回空串） */
+function fmtClock(iso) {
+  const t = Date.parse(String(iso || ''));
+  if (!Number.isFinite(t)) return '';
+  const b = new Date(t + 8 * 3600 * 1000);
+  return `${b.getUTCFullYear()}-${p2(b.getUTCMonth() + 1)}-${p2(b.getUTCDate())} `
+    + `${p2(b.getUTCHours())}:${p2(b.getUTCMinutes())}`;
+}
 
 /**
  * 文案取值优先级：群级自定义 > 后台全局设置 > 环境变量 > 内置默认
@@ -396,6 +417,11 @@ export async function handleMessage(evt, rawEnv) {
     const m = d.member_openid || d.user_openid || '';
     if (!g) return null;
     if (m) {
+      // 事件到达即落日志：便于后台自证「进群事件是否真的推送过来了」
+      await logAction(kv, {
+        action: 'member_join', target: `${g}:${m}`,
+        detail: '收到 GROUP_MEMBER_ADD 事件（新成员进群）',
+      }).catch(() => {});
       const prev = await getMemberDoc(kv, g, m).catch(() => null);
       if (prev && prev.status === 'blacklisted') {
         // 黑名单成员重新入群：保留黑名单状态并提示管理员（平台无入群拦截 API）
@@ -422,6 +448,10 @@ export async function handleMessage(evt, rawEnv) {
     const g = d.group_openid;
     const m = d.member_openid || d.user_openid || '';
     if (!g || !m) return null;
+    await logAction(kv, {
+      action: 'member_leave', target: `${g}:${m}`,
+      detail: '收到 GROUP_MEMBER_REMOVE 事件（成员退出）',
+    }).catch(() => {});
     if (await noticeToggle(kv, cfg, 'autoBlacklistOnLeave')) {
       try {
         await touchMember(kv, g, m, { status: 'blacklisted' });
@@ -436,6 +466,91 @@ export async function handleMessage(evt, rawEnv) {
     return {
       chatType: 'group', targetId: g, msgId: null, msgSeq: 1,
       content: await resolveNotice(kv, cfg, g, 'leaveNotice', DEFAULT_LEAVE_NOTICE),
+    };
+  }
+
+  // 用户申请加群：GROUP_JOIN_REQUEST（Intent GROUP_MEMBER_EVENT 1<<24）
+  // 平台限制：只有机器人是群管理员时才会推送；这是「黑名单拦在门外」唯一可靠的时机——
+  // 可 decline 并把申请人写入平台群黑名单，比入群后再处理有效得多。
+  if (type === 'GROUP_JOIN_REQUEST') {
+    const g = d.group_openid;
+    const m = d.member_openid || d.user_openid || '';
+    if (!g || !m) return null;
+    const settings = await loadSettings(kv).catch(() => ({}));
+    if (settings.joinRequestEnabled === false) return null;
+
+    const name = String(d.username || '').trim() || m;
+    const jrId = String(d.join_request_id || '');
+    const riskTips = String(d.risk_tips || '');
+    const applySource = String(d.apply_source || '');
+    const applyAt = d.apply_at ? String(d.apply_at) : new Date().toISOString();
+    const recId = joinRequestId(g, m);
+
+    const prev = await getMemberDoc(kv, g, m).catch(() => null);
+    const blacklisted = !!(prev && prev.status === 'blacklisted');
+    // 黑名单：自动拒绝 + 写入平台群黑名单（默认开启）
+    const autoReject = blacklisted && settings.joinAutoRejectBlacklist !== false;
+    // 可选自动通过：非黑名单、无风险提示、非机器人账号（默认关闭，避免误放人）
+    const autoApprove = !blacklisted && settings.joinAutoApprove === true && !d.bot && !riskTips;
+
+    await saveJoinRequest(kv, {
+      groupOpenid: g, memberOpenid: m, username: name, joinRequestId: jrId,
+      applySource, invitedBy: String(d.invited_by || ''), riskTips,
+      isBot: !!d.bot, applyAt, status: 'pending',
+    }).catch((e) => console.warn('记录入群申请失败:', e.message));
+
+    if (autoReject) {
+      const reason = String(settings.joinRejectReason || '').trim() || DEFAULT_JOIN_REJECT_REASON;
+      try {
+        await approveJoinRequest(g, m, 'decline', cfg, {
+          joinRequestId: jrId, rejectReason: reason, addToBlacklist: true,
+        });
+        await updateJoinRequest(kv, recId, { status: 'declined', handledBy: 'auto:blacklist', reason })
+          .catch(() => {});
+        await logAction(kv, {
+          action: 'join_declined', target: `${g}:${m}`,
+          detail: `黑名单申请人自动拒绝并写入群黑名单：${name}`,
+        }).catch(() => {});
+      } catch (e) {
+        await logAction(kv, {
+          action: 'join_decline_failed', target: `${g}:${m}`,
+          detail: `自动拒绝失败：${e.message}（需机器人是群管理员且接口已开通）`,
+        }).catch(() => {});
+      }
+      return null; // 静默拒绝，不在群里刷提示
+    }
+
+    if (autoApprove) {
+      try {
+        await approveJoinRequest(g, m, 'approve', cfg, { joinRequestId: jrId });
+        await updateJoinRequest(kv, recId, { status: 'approved', handledBy: 'auto' }).catch(() => {});
+        await touchMember(kv, g, m, { status: 'normal', nickname: name }).catch(() => {});
+        await logAction(kv, {
+          action: 'join_approved', target: `${g}:${m}`, detail: `自动通过入群申请：${name}`,
+        }).catch(() => {});
+      } catch (e) {
+        await logAction(kv, {
+          action: 'join_approve_failed', target: `${g}:${m}`, detail: `自动通过失败：${e.message}`,
+        }).catch(() => {});
+      }
+      return null;
+    }
+
+    // 默认：只通知管理员（群里发一条提示，去后台审批）
+    await logAction(kv, {
+      action: 'join_request', target: `${g}:${m}`,
+      detail: `收到入群申请：${name}${riskTips ? `（风险提示：${riskTips}）` : ''}`,
+    }).catch(() => {});
+    const tpl = await resolveNotice(kv, cfg, g, 'joinNotice', DEFAULT_JOIN_NOTICE);
+    return {
+      chatType: 'group', targetId: g, msgId: null, msgSeq: 1,
+      content: fillTemplate(tpl, {
+        name,
+        openid: m,
+        source: JOIN_SOURCE_LABEL[applySource] || applySource || '未知',
+        time: fmtClock(applyAt) || '-',
+        tips: riskTips ? `\n⚠️ 平台风险提示：${riskTips}` : '',
+      }),
     };
   }
 

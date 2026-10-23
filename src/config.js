@@ -45,6 +45,7 @@ export function loadConfig(env = {}) {
     WELCOME_MEMBER: env.WELCOME_MEMBER || '',              // 新成员进群欢迎词
     WELCOME_BOT: env.WELCOME_BOT || '',                    // 机器人进群欢迎词
     LEAVE_NOTICE: env.LEAVE_NOTICE || '',                  // 成员退群提示
+    JOIN_NOTICE: env.JOIN_NOTICE || '',                    // 入群申请群内通知（{name}/{source}/{time}/{tips}）
     AUTO_BLACKLIST_ON_LEAVE: bool(env.AUTO_BLACKLIST_ON_LEAVE, true), // 退群自动拉黑
 
     // 管理：openid 白名单（逗号分隔），这些用户可发管理指令

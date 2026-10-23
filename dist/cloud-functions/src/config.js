@@ -40,6 +40,14 @@ export function loadConfig(env = {}) {
     AD_KEYWORDS: list(env.AD_KEYWORDS),                   // 额外关键词
     AD_REGEX: list(env.AD_REGEX),                          // 额外正则
 
+    // 欢迎词 / 退群提示（后台「欢迎词设置」优先级更高，这里仅作环境变量兜底）
+    WELCOME_ENABLED: bool(env.WELCOME_ENABLED, true),      // 迎宾/送别总开关
+    WELCOME_MEMBER: env.WELCOME_MEMBER || '',              // 新成员进群欢迎词
+    WELCOME_BOT: env.WELCOME_BOT || '',                    // 机器人进群欢迎词
+    LEAVE_NOTICE: env.LEAVE_NOTICE || '',                  // 成员退群提示
+    JOIN_NOTICE: env.JOIN_NOTICE || '',                    // 入群申请群内通知（{name}/{source}/{time}/{tips}）
+    AUTO_BLACKLIST_ON_LEAVE: bool(env.AUTO_BLACKLIST_ON_LEAVE, true), // 退群自动拉黑
+
     // 管理：openid 白名单（逗号分隔），这些用户可发管理指令
     ADMIN_OPENIDS: list(env.ADMIN_OPENIDS),
 

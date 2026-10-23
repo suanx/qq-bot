@@ -125,6 +125,29 @@ export async function kickMembers(groupOpenid, memberOpenids, cfg, opts = {}, fe
   return callApi(cfg, 'POST', `/v2/groups/${groupOpenid}/batch_remove_members`, body, fetchImpl);
 }
 
+/* ---------------- 入群申请 ---------------- */
+
+/**
+ * 入群申请审批（需机器人是群管理员）
+ * @param {'approve'|'decline'} op
+ * @param {{joinRequestId?:string, rejectReason?:string, addToBlacklist?:boolean}} opts
+ */
+export async function approveJoinRequest(groupOpenid, memberOpenid, op, cfg, opts = {}, fetchImpl = fetch) {
+  const body = { op: op === 'decline' ? 'decline' : 'approve' };
+  if (opts.joinRequestId) body.join_request_id = String(opts.joinRequestId);
+  if (body.op === 'decline') {
+    if (opts.rejectReason) body.reject_reason = String(opts.rejectReason).slice(0, 200);
+    if (opts.addToBlacklist) body.add_to_member_blacklist = true;
+  }
+  return callApi(cfg, 'POST',
+    `/v2/groups/${groupOpenid}/approval_join_request/${memberOpenid}`, body, fetchImpl);
+}
+
+/** 拉取群待审批入群申请列表（用于后台手动核对/补审批） */
+export async function listJoinRequests(groupOpenid, cfg, fetchImpl = fetch) {
+  return callApi(cfg, 'GET', `/v2/groups/${groupOpenid}/join_request_list`, null, fetchImpl);
+}
+
 /** 群黑名单（内邀接口；仅对不在群中的用户生效） */
 export async function blacklistMember(groupOpenid, memberOpenid, add = true, cfg, fetchImpl = fetch) {
   return callApi(cfg, 'POST', `/v2/groups/${groupOpenid}/member_blacklist`,

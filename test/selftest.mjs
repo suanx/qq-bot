@@ -16,7 +16,8 @@ import { signSession, SESSION_COOKIE } from '../src/admin/auth.js';
 import { onRequest as aitestHandler } from '../cloud-functions/api/admin/aitest.js';
 import { onRequest as msgtestHandler } from '../cloud-functions/api/admin/msgtest.js';
 import { onRequest as settingsHandler } from '../cloud-functions/api/admin/settings.js';
-import { saveSettings, touchGroup, touchMember } from '../src/records.js';
+import { onRequest as joinrequestsHandler } from '../cloud-functions/api/admin/joinrequests.js';
+import { saveSettings, touchGroup, touchMember, saveJoinRequest } from '../src/records.js';
 import { verifyAppIdCandidate } from '../src/qqapi.js';
 
 const ncrypto = (await import('node:crypto')).default;
@@ -468,6 +469,97 @@ await t('黑名单成员重新入群：保留黑名单并提示管理员', async
   assert.equal(member.status, 'blacklisted', '黑名单状态不应被重置');
 });
 
+/* ---------------- 入群申请 GROUP_JOIN_REQUEST ---------------- */
+console.log('\n[入群申请]');
+await t('入群申请：默认发群内通知 + 落库 pending', async () => {
+  const r = await handleMessage(evt('GROUP_JOIN_REQUEST', {
+    group_openid: 'G_J1', member_openid: 'M_J1', username: '小明',
+    join_request_id: 'JR_1', apply_source: 'self_apply',
+    apply_at: '2026-10-23T14:00:00+08:00',
+  }), baseEnv);
+  assert.ok(r && r.content, '应有群通知');
+  assert.match(r.content, /小明/);
+  assert.match(r.content, /主动申请/);
+  const kv = await createKV(baseEnv);
+  const rec = await createRepo(kv).get(COLLECTIONS.JOIN_REQUESTS, 'G_J1:M_J1');
+  assert.equal(rec.status, 'pending');
+  assert.equal(rec.joinRequestId, 'JR_1');
+});
+await t('入群申请：黑名单申请人自动拒绝 + 状态落库 + 日志', async () => {
+  const kv = await createKV(baseEnv);
+  await touchMember(kv, 'G_J2', 'M_BLK', { status: 'blacklisted' });
+  const r = await handleMessage(evt('GROUP_JOIN_REQUEST', {
+    group_openid: 'G_J2', member_openid: 'M_BLK', username: '坏账号',
+    join_request_id: 'JR_2',
+  }), baseEnv);
+  assert.equal(r, null, '自动拒绝应静默，不在群里刷屏');
+  const rec = await createRepo(kv).get(COLLECTIONS.JOIN_REQUESTS, 'G_J2:M_BLK');
+  assert.equal(rec.status, 'declined');
+  assert.equal(rec.handledBy, 'auto:blacklist');
+  const logs = await createRepo(kv).list(COLLECTIONS.LOGS);
+  assert.ok(logs.some((x) => x.action === 'join_declined'), '应记录 join_declined');
+});
+await t('入群申请：自动通过开关生效', async () => {
+  const kv = await createKV(baseEnv);
+  await saveSettings(kv, { joinAutoApprove: true });
+  const r = await handleMessage(evt('GROUP_JOIN_REQUEST', {
+    group_openid: 'G_J3', member_openid: 'M_OK', username: '正常用户', join_request_id: 'JR_3',
+  }), baseEnv);
+  assert.equal(r, null, '自动通过不再发群通知');
+  const rec = await createRepo(kv).get(COLLECTIONS.JOIN_REQUESTS, 'G_J3:M_OK');
+  assert.equal(rec.status, 'approved');
+  const member = await createRepo(kv).get(COLLECTIONS.MEMBERS, 'G_J3:M_OK');
+  assert.equal(member.status, 'normal');
+});
+await t('入群申请：有风险提示则不自动通过，改走通知', async () => {
+  const kv = await createKV(baseEnv);
+  await saveSettings(kv, { joinAutoApprove: true });
+  const r = await handleMessage(evt('GROUP_JOIN_REQUEST', {
+    group_openid: 'G_J4', member_openid: 'M_RISK', username: '风险号',
+    risk_tips: 'warning_tips', join_request_id: 'JR_4',
+  }), baseEnv);
+  assert.ok(r && r.content);
+  assert.match(r.content, /风险/);
+});
+await t('入群申请：总开关关闭后完全忽略', async () => {
+  const kv = await createKV(baseEnv);
+  await saveSettings(kv, { joinRequestEnabled: false });
+  const r = await handleMessage(evt('GROUP_JOIN_REQUEST', {
+    group_openid: 'G_J5', member_openid: 'M_J5',
+  }), baseEnv);
+  assert.equal(r, null);
+});
+await t('入群申请：群级通知文案 + 占位符替换', async () => {
+  const kv = await createKV(baseEnv);
+  await touchGroup(kv, 'G_J6', {});
+  await touchGroup(kv, 'G_J6', { joinNotice: '【{name}】想进群（{source}）' });
+  const r = await handleMessage(evt('GROUP_JOIN_REQUEST', {
+    group_openid: 'G_J6', member_openid: 'M_J6', username: '阿强', apply_source: 'invited',
+  }), baseEnv);
+  assert.equal(r.content, '【阿强】想进群（被邀请）');
+});
+await t('后台审批：通过后状态变 approved 且成员恢复正常', async () => {
+  const token = await signSession({ username: 'admin', role: 'owner' }, 'sess-secret', 3600);
+  const env = { ...baseEnv, ADMIN_SESSION_SECRET: 'sess-secret' };
+  const kv = await createKV(env);
+  await saveJoinRequest(kv, {
+    groupOpenid: 'G_J7', memberOpenid: 'M_J7', username: '待审批', joinRequestId: 'JR_7',
+  });
+  const res = await joinrequestsHandler({
+    request: new Request('https://x/api/admin/joinrequests', {
+      method: 'POST',
+      headers: { cookie: `${SESSION_COOKIE}=${token}` },
+      body: JSON.stringify({ id: 'G_J7:M_J7', op: 'approve' }),
+    }),
+    env,
+  });
+  const j = await res.json();
+  assert.equal(j.ok, true, JSON.stringify(j));
+  assert.equal(j.item.status, 'approved');
+  const member = await createRepo(kv).get(COLLECTIONS.MEMBERS, 'G_J7:M_J7');
+  assert.equal(member.status, 'normal');
+});
+
 /* ---------------- 设置接口 ---------------- */
 console.log('\n[欢迎词设置接口]');
 await t('settings 未登录 → 401', async () => {
@@ -496,6 +588,9 @@ await t('settings PUT 保存并读回（仅白名单字段）', async () => {
   assert.equal(gj.item.memberWelcome, '后台自定义');
   assert.equal(gj.item.evil, undefined, '非白名单字段不应写入');
   assert.equal(gj.item.welcomeEnabled, true, '缺省值为开启');
+  assert.equal(gj.item.joinRequestEnabled, true, '入群申请处理缺省开启');
+  assert.equal(gj.item.joinAutoApprove, false, '自动通过缺省关闭');
+  assert.equal(gj.item.joinAutoRejectBlacklist, true, '黑名单自动拒绝缺省开启');
 });
 
 /* ================= 入口 core ================= */

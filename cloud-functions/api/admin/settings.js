@@ -14,6 +14,11 @@ const ALLOW_FIELDS = [
   'botWelcome',            // 机器人进群欢迎词
   'leaveNotice',           // 成员退群提示
   'autoBlacklistOnLeave',  // 退群自动拉黑
+  'joinRequestEnabled',    // 处理入群申请（GROUP_JOIN_REQUEST）
+  'joinAutoApprove',       // 入群申请自动通过
+  'joinAutoRejectBlacklist', // 黑名单申请人自动拒绝并写入群黑名单
+  'joinNotice',            // 入群申请群内通知文案（支持 {name}/{source}/{time}/{tips}）
+  'joinRejectReason',      // 自动拒绝理由
 ];
 
 const DEFAULTS = {
@@ -22,6 +27,11 @@ const DEFAULTS = {
   botWelcome: '',
   leaveNotice: '',
   autoBlacklistOnLeave: true,
+  joinRequestEnabled: true,
+  joinAutoApprove: false,
+  joinAutoRejectBlacklist: true,
+  joinNotice: '',
+  joinRejectReason: '',
 };
 
 export async function onRequest(context) {

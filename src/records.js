@@ -164,8 +164,47 @@ export async function saveSettings(kv, patch = {}) {
   return repo.update(COLLECTIONS.SETTINGS, SETTINGS_WELCOME_ID, patch);
 }
 
-/** 后台管理员 openid 列表（仅启用状态） */
-export async function loadAdminOpenids(kv) {
+/**
+ * 入群申请记录（GROUP_JOIN_REQUEST 事件落库，后台「入群申请」可查/审批）
+ * 主键：`${groupOpenid}:${memberOpenid}`，同一人重复申请覆盖并更新状态
+ */
+export function joinRequestId(groupOpenid, memberOpenid) {
+  return `${groupOpenid}:${memberOpenid}`;
+}
+
+export async function saveJoinRequest(kv, data) {
+  const repo = createRepo(kv);
+  const id = joinRequestId(data.groupOpenid, data.memberOpenid);
+  const patch = {
+    groupOpenid: data.groupOpenid,
+    memberOpenid: data.memberOpenid,
+    username: data.username || '',
+    joinRequestId: data.joinRequestId || '',
+    applySource: data.applySource || '',
+    invitedBy: data.invitedBy || '',
+    verifyInfo: data.verifyInfo || '',
+    riskTips: data.riskTips || '',
+    isBot: !!data.isBot,
+    status: data.status || 'pending',
+    handledBy: data.handledBy || '',
+    reason: data.reason || '',
+    applyAt: data.applyAt || new Date().toISOString(),
+  };
+  const cur = await repo.get(COLLECTIONS.JOIN_REQUESTS, id);
+  if (!cur) return repo.create(COLLECTIONS.JOIN_REQUESTS, { id, ...patch });
+  return repo.update(COLLECTIONS.JOIN_REQUESTS, id, patch);
+}
+
+export async function updateJoinRequest(kv, id, patch = {}) {
+  const repo = createRepo(kv);
+  return repo.update(COLLECTIONS.JOIN_REQUESTS, id, patch);
+}
+
+export async function getJoinRequest(kv, id) {
+  return createRepo(kv).get(COLLECTIONS.JOIN_REQUESTS, id);
+}
+
+/** 后台管理员 openid 列表（仅启用状态） */export async function loadAdminOpenids(kv) {
   const repo = createRepo(kv);
   const admins = await repo.list(COLLECTIONS.ADMINS);
   return admins

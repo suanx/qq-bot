@@ -43,15 +43,73 @@
   .field { margin-bottom: 14px; }
   .field label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
 
-  header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  /* ---- 抽屉式侧边栏布局 ---- */
+  .layout { display: flex; min-height: 100vh; }
+  .sidebar {
+    width: 220px; flex-shrink: 0; height: 100vh; position: sticky; top: 0;
+    background: #1b2233; color: #cbd5e1; display: flex; flex-direction: column;
+    transition: width .22s ease; overflow: hidden; z-index: 60;
+  }
+  .sidebar .brand { display: flex; align-items: center; gap: 10px; padding: 18px 16px; color: #fff; }
+  .sidebar .brand .logo { width: 32px; height: 32px; flex-shrink: 0; display: grid; place-items: center; background: var(--brand); border-radius: 8px; }
+  .sidebar .brand .logo svg { width: 18px; height: 18px; }
+  .sidebar .brand .name { font-size: 15px; font-weight: 600; white-space: nowrap; line-height: 1.25; transition: opacity .15s; }
+  .sidebar .brand .name small { display: block; font-size: 11px; font-weight: 400; color: #94a3b8; }
+  .side-nav { flex: 1; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden; }
+  .side-nav button {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    background: transparent; border: 0; color: #cbd5e1; border-radius: 8px;
+    padding: 10px 12px; text-align: left; font-size: 14px; white-space: nowrap;
+  }
+  .side-nav button svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .side-nav button:hover { background: rgba(255,255,255,.08); color: #fff; }
+  .side-nav button.active { background: var(--brand); color: #fff; font-weight: 600; }
+  .side-nav button .lbl { opacity: 1; transition: opacity .15s; }
+  .side-foot { padding: 10px; border-top: 1px solid rgba(255,255,255,.08); }
+  .side-foot button {
+    width: 100%; display: flex; align-items: center; gap: 10px;
+    background: transparent; border: 0; color: #94a3b8; padding: 8px 12px; border-radius: 8px;
+  }
+  .side-foot button:hover { background: rgba(255,255,255,.08); color: #fff; }
+  .side-foot button svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .side-foot .foot-text { white-space: nowrap; opacity: 1; transition: opacity .15s; font-size: 13px; }
+
+  .content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; position: sticky; top: 0; z-index: 40; }
   header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  #menuBtn { display: none; }
   .spacer { flex: 1; }
   .who { color: var(--muted); font-size: 13px; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--brand-soft); color: var(--brand); }
-  nav.tabs { display: flex; gap: 4px; padding: 12px 24px 0; flex-wrap: wrap; }
-  nav.tabs button { border-color: transparent; background: transparent; color: var(--muted); }
-  nav.tabs button.active { background: var(--panel); border-color: var(--border); color: var(--text); font-weight: 600; }
   main { padding: 20px 24px 48px; }
+
+  /* 桌面端收起态：仅显示图标 */
+  @media (min-width: 901px) {
+    .sidebar.collapsed { width: 64px; }
+    .sidebar.collapsed .brand .name,
+    .sidebar.collapsed .side-nav button .lbl,
+    .sidebar.collapsed .side-foot .foot-text { opacity: 0; pointer-events: none; }
+  }
+  /* 移动端：侧边栏变为覆盖式抽屉 */
+  .side-mask { position: fixed; inset: 0; background: rgba(16,24,40,.45); z-index: 55; }
+  @media (max-width: 900px) {
+    .sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 220px; transform: translateX(-100%); transition: transform .22s ease; }
+    .sidebar.open { transform: translateX(0); box-shadow: 0 0 40px rgba(0,0,0,.25); }
+    #menuBtn { display: inline-flex; }
+    #collapseBtn { display: none; }
+    header { padding: 12px 14px; }
+    main { padding: 16px 14px 40px; }
+    /* 修复手机端：表格改为横向滑动而不是被截断/挤压 */
+    .panel { overflow: visible; }
+    .panel .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .panel table { min-width: 640px; }
+    .toolbar input { width: 100%; flex: 1 1 160px; }
+    .pager { flex-wrap: wrap; }
+    /* 触屏提示：长按单元格可看完整内容（title 悬浮在触屏无效，改为点击弹详情） */
+    .panel td[data-full] { cursor: pointer; }
+    /* 防 iOS 聚焦自动放大导致页面错位：触屏下控件字号一律 16px */
+    input, select, textarea { font-size: 16px; }
+  }
 
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; box-shadow: var(--shadow); }
@@ -77,11 +135,32 @@
   .bar-fill { background: var(--brand); height: 100%; }
   .bar-num { text-align: right; color: var(--muted); font-size: 12px; }
 
-  .mask { position: fixed; inset: 0; background: rgba(16,24,40,.45); display: grid; place-items: center; padding: 24px; z-index: 50; }
-  .modal { background: var(--panel); border-radius: 12px; width: 460px; max-width: 100%; box-shadow: var(--shadow); }
-  .modal .head { padding: 16px 20px; border-bottom: 1px solid var(--border); font-weight: 600; }
-  .modal .body { padding: 18px 20px; display: grid; gap: 14px; max-height: 62vh; overflow: auto; }
-  .modal .foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+  .mask { position: fixed; inset: 0; background: rgba(16,24,40,.45); display: grid; place-items: center; padding: 24px; z-index: 50; overflow-y: auto; }
+  /* 自适应弹窗：永不超出视口，超长内容在弹窗内部滚动，底部按钮始终可见 */
+  .modal { background: var(--panel); border-radius: 12px; width: 460px; max-width: 100%; max-height: calc(100vh - 48px); display: flex; flex-direction: column; box-shadow: var(--shadow); }
+  .modal .head { padding: 16px 20px; border-bottom: 1px solid var(--border); font-weight: 600; flex-shrink: 0; }
+  .modal .body { padding: 18px 20px; display: grid; gap: 14px; flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .modal .foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; flex-shrink: 0; }
+  .modal input, .modal select, .modal textarea { width: 100%; box-sizing: border-box; }
+
+  /* 轻提示（替代 alert，手机上不会被系统弹窗挡住） */
+  .toast { position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: #1b2233; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 14px;
+    box-shadow: 0 4px 14px rgba(16,24,40,.25); z-index: 70; max-width: calc(100vw - 40px); text-align: center;
+    animation: toast-in .18s ease; }
+  .toast.err { background: #b91c1c; }
+  @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  @media (max-width: 900px) {
+    .mask { padding: 10px; }
+    .modal { width: 100%; max-height: calc(100vh - 20px); border-radius: 10px; }
+    .modal .head { padding: 12px 14px; }
+    .modal .body { padding: 14px; gap: 12px; }
+    .modal .foot { padding: 12px 14px; }
+    /* 触屏可用性：控件 16px 防 iOS 聚焦放大，按钮加大并平分宽度 */
+    .modal input, .modal select, .modal textarea { font-size: 16px; }
+    .modal .foot .spacer { display: none; }
+    .modal .foot button { flex: 1; padding: 11px 0; font-size: 15px; }
+  }
 </style>
 </head>
 <body>
@@ -91,23 +170,43 @@
 
 <!-- ============ 主应用（未登录由下方守卫脚本跳转登录页） ============ -->
 <div id="appView" hidden>
-  <header>
-    <h1>QQ 机器人管理后台</h1>
-    <span id="storageBadge" class="badge"></span>
-    <span class="spacer"></span>
-    <span class="who" id="who"></span>
-    <button id="logoutBtn">退出</button>
-  </header>
-  <nav class="tabs" id="tabs"></nav>
-  <main>
-    <section id="view-overview" class="view" hidden></section>
-    <section id="view-groups" class="view" hidden></section>
-    <section id="view-members" class="view" hidden></section>
-    <section id="view-violations" class="view" hidden></section>
-    <section id="view-rules" class="view" hidden></section>
-    <section id="view-admins" class="view" hidden></section>
-    <section id="view-logs" class="view" hidden></section>
-  </main>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 8V5.5"/><circle cx="12" cy="4" r="1.5"/><circle cx="9" cy="13" r="1" fill="#fff" stroke="none"/><circle cx="15" cy="13" r="1" fill="#fff" stroke="none"/><path d="M9.5 16.5h5"/></svg></span>
+        <span class="name">QQ 机器人<small>管理后台</small></span>
+      </div>
+      <nav class="side-nav" id="tabs"></nav>
+      <div class="side-foot">
+        <button id="collapseBtn" title="收起/展开侧边栏">
+          <svg id="collapseIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 17l-5-5 5-5"/><path d="M18 17l-5-5 5-5"/></svg>
+          <span class="foot-text">收起侧边栏</span>
+        </button>
+      </div>
+    </aside>
+    <div class="side-mask" id="sideMask" hidden></div>
+    <div class="content">
+      <header>
+        <button id="menuBtn" title="打开菜单">☰</button>
+        <h1 id="pageTitle">数据概览</h1>
+        <span id="storageBadge" class="badge"></span>
+        <span class="spacer"></span>
+        <span class="who" id="who"></span>
+        <button id="logoutBtn">退出</button>
+      </header>
+      <main>
+        <section id="view-overview" class="view" hidden></section>
+        <section id="view-groups" class="view" hidden></section>
+        <section id="view-members" class="view" hidden></section>
+        <section id="view-violations" class="view" hidden></section>
+        <section id="view-rules" class="view" hidden></section>
+        <section id="view-settings" class="view" hidden></section>
+        <section id="view-joinrequests" class="view" hidden></section>
+        <section id="view-admins" class="view" hidden></section>
+        <section id="view-logs" class="view" hidden></section>
+      </main>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -128,6 +227,15 @@ function fmtTime(iso) {
 }
 function short(s) { const t = String(s || ''); return t.length > 10 ? t.slice(0, 8) + '…' : t; }
 
+/** 轻提示：2.6 秒自动消失；isErr=true 显示红色错误样式 */
+function toast(msg, isErr = false) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (isErr ? ' err' : '');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2600);
+}
+
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     credentials: 'same-origin',
@@ -145,12 +253,29 @@ async function api(path, opts = {}) {
 }
 
 /* ================= 视图定义 ================= */
+/* 菜单图标（feather 风格描边 SVG，随主题色） */
+const ICONS = {
+  overview: '<path d="M3 21h18"/><path d="M6 21v-8"/><path d="M12 21V5"/><path d="M18 21v-5"/>',
+  groups: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+  members: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  violations: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  rules: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  admins: '<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>',
+  logs: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  settings: '<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/><circle cx="9" cy="5" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="19" r="2"/>',
+  joinrequests: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
+};
+const svgIcon = (key) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + (ICONS[key] || '') + '</svg>';
+
 const VIEWS = [
   { key: 'overview', label: '数据概览' },
   { key: 'groups', label: '群管理' },
   { key: 'members', label: '成员管理' },
   { key: 'violations', label: '违规记录' },
   { key: 'rules', label: '广告规则' },
+  { key: 'settings', label: '欢迎词设置' },
+  { key: 'joinrequests', label: '入群申请' },
   { key: 'admins', label: '管理员与权限' },
   { key: 'logs', label: '操作日志' },
 ];
@@ -169,6 +294,8 @@ const SCHEMA = {
       { key: 'aiEnabled', label: 'AI 对话', type: 'bool' },
       { key: 'adFilterEnabled', label: '广告过滤', type: 'bool' },
       { key: 'memberCount', label: '成员数', type: 'number' },
+      { key: 'memberWelcome', label: '专属欢迎词（留空则用全局）', type: 'textarea' },
+      { key: 'leaveNotice', label: '专属退群提示（留空则用全局）', type: 'textarea' },
     ],
   },
   members: {
@@ -256,19 +383,65 @@ let currentUser = null;
 /* ================= 视图切换 ================= */
 function renderTabs() {
   $('#tabs').innerHTML = VIEWS
-    .map((v) => '<button data-view="' + v.key + '">' + esc(v.label) + '</button>')
+    .map((v) => '<button data-view="' + v.key + '" title="' + esc(v.label) + '">'
+      + svgIcon(v.key) + '<span class="lbl">' + esc(v.label) + '</span></button>')
     .join('');
   $$('#tabs button').forEach((b) => {
-    b.addEventListener('click', () => switchView(b.dataset.view));
+    b.addEventListener('click', () => {
+      switchView(b.dataset.view);
+      closeDrawer(); // 移动端点选后自动收起抽屉
+    });
   });
 }
 
 function switchView(key) {
+  const view = VIEWS.find((v) => v.key === key);
   $$('.view').forEach((s) => { s.hidden = s.id !== 'view-' + key; });
   $$('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.view === key));
+  const title = view ? view.label : '';
+  $('#pageTitle').textContent = title;
+  document.title = title + ' · QQ 机器人管理后台';
   if (key === 'overview') renderOverview();
+  else if (key === 'settings') renderSettings();
+  else if (key === 'joinrequests') renderJoinRequests();
   else renderCollection(key);
 }
+
+/* ================= 侧边栏抽屉 ================= */
+const sidebar = $('#sidebar');
+const sideMask = $('#sideMask');
+const isMobile = () => window.matchMedia('(max-width: 900px)').matches;
+
+/** 桌面端收起/展开；收起时仅显示图标 */
+function setCollapsed(on) {
+  sidebar.classList.toggle('collapsed', on);
+  $('#collapseIcon').innerHTML = on
+    ? '<path d="M13 17l5-5-5-5"/><path d="M6 17l5-5-5-5"/>'
+    : '<path d="M11 17l-5-5 5-5"/><path d="M18 17l-5-5 5-5"/>';
+  try { localStorage.setItem('qqbot_admin_sidebar', on ? 'collapsed' : 'expanded'); } catch { /* 隐私模式忽略 */ }
+}
+
+/** 移动端抽屉开合 */
+function openDrawer() {
+  if (!isMobile()) return;
+  sidebar.classList.add('open');
+  sideMask.hidden = false;
+}
+function closeDrawer() {
+  sidebar.classList.remove('open');
+  sideMask.hidden = true;
+}
+
+$('#collapseBtn').addEventListener('click', () => {
+  if (isMobile()) { closeDrawer(); return; }
+  setCollapsed(!sidebar.classList.contains('collapsed'));
+});
+$('#menuBtn').addEventListener('click', openDrawer);
+sideMask.addEventListener('click', closeDrawer);
+window.addEventListener('resize', () => { if (!isMobile()) closeDrawer(); });
+
+// 恢复上次收起状态
+try { if (localStorage.getItem('qqbot_admin_sidebar') === 'collapsed') setCollapsed(true); } catch { /* ignore */ }
 
 /* ================= 概览 ================= */
 async function renderOverview() {
@@ -312,13 +485,13 @@ async function renderOverview() {
 
   const recent = d.recentViolations || [];
   const recentHtml = recent.length
-    ? '<table><thead><tr><th>时间</th><th>群</th><th>成员</th><th>规则</th>'
+    ? '<div class="table-wrap"><table><thead><tr><th>时间</th><th>群</th><th>成员</th><th>规则</th>'
       + '<th>命中</th><th>处置</th></tr></thead><tbody>'
       + recent.map((v) => '<tr><td>' + esc(fmtTime(v.createdAt)) + '</td><td>'
         + esc(short(v.groupOpenid)) + '</td><td>' + esc(short(v.memberOpenid))
         + '</td><td>' + esc(v.rule) + '</td><td>' + esc(v.matched)
         + '</td><td>' + esc(v.action) + '</td></tr>').join('')
-      + '</tbody></table>'
+      + '</tbody></table></div>'
     : '<div class="empty">暂无违规记录</div>';
 
   $('#view-overview').innerHTML = `
@@ -386,7 +559,11 @@ async function renderCollection(name) {
       if (c === 'content' || c === 'detail' || c === 'target') {
         const t = String(v ?? '');
         const shown = t.length > 40 ? t.slice(0, 40) + '…' : t;
-        return '<td title="' + esc(t) + '">' + (esc(shown) || '-') + '</td>';
+        if (t.length > 40) {
+          // 手机端无法悬浮查看 title，点击弹出全文详情
+          return '<td title="' + esc(t) + '" data-full="' + esc(t) + '" class="cell-more">' + (esc(shown) || '-') + '</td>';
+        }
+        return '<td>' + (esc(shown) || '-') + '</td>';
       }
       return '<td>' + esc(v ?? '-') + '</td>';
     }).join('')
@@ -404,7 +581,7 @@ async function renderCollection(name) {
       </div>
       <div id="msg_${name}"></div>
       ${items.length
-    ? '<table><thead><tr>' + headHtml + '<th>操作</th></tr></thead><tbody>' + bodyHtml + '</tbody></table>'
+    ? '<div class="table-wrap"><table><thead><tr>' + headHtml + '<th>操作</th></tr></thead><tbody>' + bodyHtml + '</tbody></table></div>'
     : '<div class="empty">暂无数据</div>'}
       <div class="pager">
         <button data-page="prev" ${st.page <= 1 ? 'disabled' : ''}>上一页</button>
@@ -466,6 +643,25 @@ function bindCollectionEvents(name, schema, st, totalPages) {
   $$('[data-edit]', root).forEach((b) => {
     b.addEventListener('click', () => openModal(name, b.dataset.edit));
   });
+
+  // 手机端：点击截断单元格弹出全文详情（触屏无 hover title）
+  $$('.cell-more', root).forEach((td) => {
+    td.addEventListener('click', () => showDetail(td.dataset.full));
+  });
+}
+
+/** 全文详情弹窗（两端通用） */
+function showDetail(text) {
+  const mask = document.createElement('div');
+  mask.className = 'mask';
+  mask.innerHTML =
+    '<div class="modal"><div class="head">详情</div>'
+    + '<div class="body"><div style="white-space:pre-wrap;word-break:break-all;line-height:1.6">'
+    + esc(text) + '</div></div>'
+    + '<div class="foot"><span class="spacer"></span><button id="detailClose">关闭</button></div></div>';
+  document.body.appendChild(mask);
+  mask.addEventListener('click', (e) => { if (e.target === mask) mask.remove(); });
+  $('#detailClose', mask).addEventListener('click', () => mask.remove());
 }
 
 /* ================= 弹窗 ================= */
@@ -537,11 +733,12 @@ async function openModal(name, id) {
     try {
       const r = await api('/api/admin/' + name + (isEdit ? '?id=' + encodeURIComponent(id) : ''),
         { method: isEdit ? 'PUT' : 'POST', body: JSON.stringify(payload) });
-      if (!r.data.ok) { alert(r.data.error || '保存失败'); return; }
+      if (!r.data.ok) { toast(r.data.error || '保存失败', true); return; }
       close();
       renderCollection(name);
+      toast('已保存');
     } catch (e) {
-      alert('保存失败：' + e.message);
+      toast('保存失败：' + e.message, true);
     }
   });
 
@@ -550,14 +747,232 @@ async function openModal(name, id) {
       if (!confirm('确认删除该记录？此操作会记入操作日志。')) return;
       try {
         const r = await api('/api/admin/' + name + '?id=' + encodeURIComponent(id), { method: 'DELETE' });
-        if (!r.data.ok) { alert(r.data.error || '删除失败'); return; }
+        if (!r.data.ok) { toast(r.data.error || '删除失败', true); return; }
         close();
         renderCollection(name);
+        toast('已删除');
       } catch (e) {
-        alert('删除失败：' + e.message);
+        toast('删除失败：' + e.message, true);
       }
     });
   }
+}
+
+/* ================= 入群申请 ================= */
+const JOIN_STATUS = {
+  pending: { label: '待审批', cls: 'muted' },
+  approved: { label: '已通过', cls: 'active' },
+  declined: { label: '已拒绝', cls: 'disabled' },
+};
+const JOIN_SOURCE = { self_apply: '主动申请', invited: '被邀请' };
+
+async function renderJoinRequests() {
+  const root = $('#view-joinrequests');
+  const st = state.joinrequests;
+  const qs = new URLSearchParams({ page: st.page, pageSize: st.pageSize });
+  if (st.search) qs.set('search', st.search);
+  if (st.filters.status) qs.set('status', st.filters.status);
+
+  let d = {};
+  try {
+    const r = await api('/api/admin/joinrequests?' + qs.toString());
+    if (!r.data.ok) throw new Error(r.data.error || '读取失败');
+    d = r.data;
+  } catch (e) {
+    root.innerHTML = '<div class="panel"><div class="head">入群申请</div>'
+      + '<div class="empty">加载失败：' + esc(e.message) + '</div></div>';
+    return;
+  }
+
+  const items = d.items || [];
+  const total = d.total ?? 0;
+  const totalPages = d.totalPages ?? 1;
+
+  const rows = items.map((it) => {
+    const s = JOIN_STATUS[it.status] || { label: it.status || '-', cls: 'muted' };
+    const pending = it.status === 'pending';
+    return '<tr>'
+      + '<td>' + esc(fmtTime(it.applyAt || it.createdAt)) + '</td>'
+      + '<td>' + esc(it.username || '-') + '</td>'
+      + '<td data-full="' + esc(it.memberOpenid) + '" class="cell-more" title="' + esc(it.memberOpenid) + '">'
+      + esc(short(it.memberOpenid)) + '</td>'
+      + '<td>' + esc(JOIN_SOURCE[it.applySource] || it.applySource || '-') + '</td>'
+      + '<td>' + (it.riskTips ? '<span class="pill disabled">有风险</span>' : '-') + '</td>'
+      + '<td><span class="pill ' + s.cls + '">' + esc(s.label) + '</span></td>'
+      + '<td>' + esc(it.handledBy || '-') + '</td>'
+      + '<td style="white-space:nowrap">'
+      + (pending
+        ? '<button class="primary" data-approve="' + esc(it.id) + '">通过</button> '
+          + '<button data-decline="' + esc(it.id) + '">拒绝</button> '
+          + '<button data-decline-black="' + esc(it.id) + '">拒绝+拉黑</button>'
+        : '<span class="hint">' + esc(it.reason || '') + '</span>')
+      + '</td></tr>';
+  }).join('');
+
+  root.innerHTML = `
+    <div class="panel">
+      <div class="toolbar">
+        <input id="q_joinrequests" placeholder="搜索申请人 / openid / 群" value="${esc(st.search)}">
+        <select data-jfilter="status">
+          <option value="">状态（全部）</option>
+          ${Object.entries(JOIN_STATUS).map(([k, v]) => '<option value="' + k + '"'
+            + (st.filters.status === k ? ' selected' : '') + '>' + v.label + '</option>').join('')}
+        </select>
+        <span class="spacer"></span>
+        <button id="jrRefresh">刷新</button>
+      </div>
+      ${items.length
+        ? '<div class="table-wrap"><table><thead><tr><th>申请时间</th><th>申请人</th><th>openid</th>'
+          + '<th>来源</th><th>风险</th><th>状态</th><th>处理人</th><th>操作</th></tr></thead>'
+          + '<tbody>' + rows + '</tbody></table></div>'
+        : '<div class="empty">暂无入群申请记录</div>'}
+      <div class="pager">
+        <button data-jpage="prev" ${st.page <= 1 ? 'disabled' : ''}>上一页</button>
+        <span>第 ${st.page} / ${totalPages} 页 · 共 ${total} 条</span>
+        <button data-jpage="next" ${st.page >= totalPages ? 'disabled' : ''}>下一页</button>
+        <select data-jpagesize>
+          ${[10, 20, 50].map((n) => '<option value="' + n + '"'
+            + (st.pageSize === n ? ' selected' : '') + '>' + n + ' 条/页</option>').join('')}
+        </select>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:18px">
+      <div class="head">说明</div>
+      <div style="padding:18px;line-height:1.9;font-size:13px;color:var(--muted)">
+        <p>· 只有当<b>机器人是群管理员</b>时，平台才会推送入群申请事件 <code>GROUP_JOIN_REQUEST</code>（需在开放平台勾选「入群申请」）。</p>
+        <p>· 「拒绝并拉黑」会调用平台审批接口同时写入群黑名单，可真正阻止该账号再次申请；普通「拒绝」仅本次拒绝。</p>
+        <p>· 自动策略在「欢迎词设置」里配置：黑名单自动拒绝（默认开）、自动通过（默认关）。</p>
+      </div>
+    </div>`;
+
+  const input = $('#q_joinrequests', root);
+  let timer = null;
+  input?.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { st.search = input.value.trim(); st.page = 1; renderJoinRequests(); }, 300);
+  });
+
+  const sel = $('[data-jfilter="status"]', root);
+  sel?.addEventListener('change', () => { st.filters.status = sel.value; st.page = 1; renderJoinRequests(); });
+
+  const sizeSel = $('[data-jpagesize]', root);
+  sizeSel?.addEventListener('change', () => { st.pageSize = Number(sizeSel.value); st.page = 1; renderJoinRequests(); });
+
+  $('#jrRefresh', root)?.addEventListener('click', () => renderJoinRequests());
+
+  $$('[data-jpage]', root).forEach((b) => b.addEventListener('click', () => {
+    st.page += b.dataset.jpage === 'next' ? 1 : -1;
+    if (st.page < 1) st.page = 1;
+    renderJoinRequests();
+  }));
+
+  const submit = async (id, op, addToBlacklist) => {
+    try {
+      const r = await api('/api/admin/joinrequests', {
+        method: 'POST',
+        body: JSON.stringify({ id, op, addToBlacklist }),
+      });
+      if (!r.data.ok) { toast(r.data.error || '操作失败', true); return; }
+      toast(op === 'decline' ? (addToBlacklist ? '已拒绝并拉黑' : '已拒绝') : '已通过');
+      renderJoinRequests();
+    } catch (e) {
+      toast('操作失败：' + e.message, true);
+    }
+  };
+
+  $$('[data-approve]', root).forEach((b) => b.addEventListener('click', () => {
+    submit(b.dataset.approve, 'approve', false);
+  }));
+  $$('[data-decline]', root).forEach((b) => b.addEventListener('click', () => {
+    submit(b.dataset.decline, 'decline', false);
+  }));
+  $$('[data-decline-black]', root).forEach((b) => b.addEventListener('click', () => {
+    submit(b.dataset.declineBlack, 'decline', true);
+  }));
+}
+
+/* ================= 欢迎词设置 ================= */
+const SETTINGS_FIELDS = [
+  { key: 'welcomeEnabled', type: 'bool', label: '迎宾 / 送别总开关' },
+  { key: 'memberWelcome', type: 'text', label: '新成员进群欢迎词' },
+  { key: 'botWelcome', type: 'text', label: '机器人进群欢迎词' },
+  { key: 'leaveNotice', type: 'text', label: '成员退群提示' },
+  { key: 'autoBlacklistOnLeave', type: 'bool', label: '成员退群自动拉黑' },
+  { key: 'joinRequestEnabled', type: 'bool', label: '处理入群申请（GROUP_JOIN_REQUEST）' },
+  { key: 'joinAutoRejectBlacklist', type: 'bool', label: '黑名单申请人自动拒绝并拉黑' },
+  { key: 'joinAutoApprove', type: 'bool', label: '入群申请自动通过（风险账号除外）' },
+  { key: 'joinNotice', type: 'text', label: '入群申请群内通知（支持 {name} {source} {time} {tips}）' },
+  { key: 'joinRejectReason', type: 'text', label: '自动拒绝理由' },
+];
+
+async function renderSettings() {
+  const root = $('#view-settings');
+  root.innerHTML = '<div class="panel"><div class="head">欢迎词设置</div>'
+    + '<div style="padding:18px" class="empty">加载中…</div></div>';
+
+  let item = {};
+  try {
+    const r = await api('/api/admin/settings');
+    if (!r.data.ok) throw new Error(r.data.error || '读取失败');
+    item = r.data.item || {};
+  } catch (e) {
+    root.innerHTML = '<div class="panel"><div class="head">欢迎词设置</div>'
+      + '<div style="padding:18px" class="empty">读取失败：' + esc(e.message) + '</div></div>';
+    return;
+  }
+
+  const renderField = (f) => {
+    const label = '<label>' + esc(f.label) + '</label>';
+    if (f.type === 'bool') {
+      const on = item[f.key] !== false && String(item[f.key]) !== 'false';
+      return '<div class="field">' + label + '<select data-set="' + f.key + '">'
+        + '<option value="true"' + (on ? ' selected' : '') + '>开启</option>'
+        + '<option value="false"' + (on ? '' : ' selected') + '>关闭</option>'
+        + '</select></div>';
+    }
+    return '<div class="field">' + label
+      + '<textarea data-set="' + f.key + '" rows="3" style="resize:vertical"'
+      + ' placeholder="留空则使用内置默认文案">' + esc(item[f.key] ?? '') + '</textarea></div>';
+  };
+
+  root.innerHTML =
+    '<div class="panel" style="margin-bottom:18px">'
+    + '<div class="head">欢迎词设置</div>'
+    + '<div style="padding:18px">'
+    + SETTINGS_FIELDS.map(renderField).join('')
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
+    + '<button class="primary" id="setSave">保存设置</button>'
+    + '<button id="setReset">清空文案（用内置默认）</button>'
+    + '</div></div></div>'
+    + '<div class="panel"><div class="head">说明</div>'
+    + '<div style="padding:18px;line-height:1.9;font-size:13px;color:var(--muted)">'
+    + '<p>· 文案留空 = 使用内置默认；「群管理」里可给单个群设置专属欢迎词/退群提示，优先于这里。</p>'
+    + '<p>· 新成员进群欢迎依赖平台事件 <code>GROUP_MEMBER_ADD</code>，需在 QQ 开放平台「事件订阅」勾选「群成员加入」；退群提示同理需勾选「群成员退出」。</p>'
+    + '<p>· <b>排障技巧</b>：事件一到就会写操作日志（动作 <code>member_join</code> / <code>member_leave</code> / <code>join_request</code>）。如果日志里没有对应记录，说明平台没推送事件（订阅未勾选）；如果有记录但群里没消息，看 <code>send_failed</code> 记录里的平台错误码。</p>'
+    + '<p>· 入群申请 <code>GROUP_JOIN_REQUEST</code> 只在<b>机器人是群管理员</b>时才会推送；黑名单申请可在「入群申请」里一键拒绝并写入群黑名单，这是真正阻止重新入群的方式。</p>'
+    + '<p>· 群机器人出站消息不支持 @ 第三人，文案为纯文本群消息。</p>'
+    + '<p>· 退群自动拉黑：成员退出后 openid 进入机器人黑名单，之后发言一律忽略；平台无入群拦截接口，无法阻止其重新入群（重新入群会提示管理员）。</p>'
+    + '</div></div>';
+
+  $('#setSave').addEventListener('click', async () => {
+    const payload = {};
+    $$('[data-set]', root).forEach((el) => {
+      const v = el.value;
+      payload[el.dataset.set] = el.tagName === 'SELECT' ? v === 'true' : v;
+    });
+    try {
+      const r = await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify(payload) });
+      if (!r.data.ok) { toast(r.data.error || '保存失败', true); return; }
+      toast('已保存，立即生效');
+    } catch (e) {
+      toast('保存失败：' + e.message, true);
+    }
+  });
+
+  $('#setReset').addEventListener('click', () => {
+    $$('textarea[data-set]', root).forEach((el) => { el.value = ''; });
+    toast('已清空文案，记得点「保存设置」');
+  });
 }
 
 /* ================= 启动（访问守卫） ================= */

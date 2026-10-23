@@ -54,6 +54,7 @@ const ROUTES = new Map([
   ['/api/admin/admins', () => import('./cloud-functions/api/admin/admins.js')],
   ['/api/admin/logs', () => import('./cloud-functions/api/admin/logs.js')],
   ['/api/admin/settings', () => import('./cloud-functions/api/admin/settings.js')],
+  ['/api/admin/joinrequests', () => import('./cloud-functions/api/admin/joinrequests.js')],
   ['/api/admin/aitest', () => import('./cloud-functions/api/admin/aitest.js')],
   ['/api/admin/msgtest', () => import('./cloud-functions/api/admin/msgtest.js')],
 ]);

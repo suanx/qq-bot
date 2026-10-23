@@ -23,20 +23,33 @@ const json = (obj, status = 200) =>
 
 /** 处理一条事件：拿到回复计划后异步发送 */
 async function dispatchEvent(evt, rawEnv) {
+  const eventType = String(evt.t || evt.type || '');
   try {
     // 统一把原始 env 透传下去，由业务层自行 loadConfig（避免重复加载）
     const plan = await handleMessage(evt, rawEnv);
     if (!plan || !plan.content) return;
-    await replyMessage(
-      {
-        targetId: plan.targetId,
-        content: plan.content,
-        msgId: plan.msgId,
-        msgSeq: plan.msgSeq || 1, // 同一 msg_id 多次回复时需递增
-        chatType: plan.chatType,
-      },
-      loadConfig(rawEnv),
-    );
+    try {
+      await replyMessage(
+        {
+          targetId: plan.targetId,
+          content: plan.content,
+          msgId: plan.msgId,
+          msgSeq: plan.msgSeq || 1, // 同一 msg_id 多次回复时需递增
+          chatType: plan.chatType,
+        },
+        loadConfig(rawEnv),
+      );
+    } catch (e) {
+      // 发送失败必须留痕：欢迎/退群/入群通知都是主动消息，失败后群里什么都看不到，
+      // 只有把平台错误码写进操作日志，后台才能自查原因（频控/权限/未开主动消息）。
+      const kv = createKV(rawEnv);
+      await logAction(kv, {
+        action: 'send_failed',
+        target: plan.targetId,
+        detail: `${eventType || '事件'} 消息发送失败：${e.message}`,
+      }).catch(() => {});
+      throw e;
+    }
     // 违规处置：警告回复成功后再撤回违规消息（保证被动回复引用的 msg_id 仍有效）
     if (plan.recallMsgId && plan.chatType === 'group') {
       const kv = createKV(rawEnv);

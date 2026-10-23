@@ -201,6 +201,7 @@
         <section id="view-violations" class="view" hidden></section>
         <section id="view-rules" class="view" hidden></section>
         <section id="view-settings" class="view" hidden></section>
+        <section id="view-joinrequests" class="view" hidden></section>
         <section id="view-admins" class="view" hidden></section>
         <section id="view-logs" class="view" hidden></section>
       </main>
@@ -262,6 +263,7 @@ const ICONS = {
   admins: '<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>',
   logs: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/>',
   settings: '<path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/><circle cx="9" cy="5" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="19" r="2"/>',
+  joinrequests: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
 };
 const svgIcon = (key) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
   + (ICONS[key] || '') + '</svg>';
@@ -273,6 +275,7 @@ const VIEWS = [
   { key: 'violations', label: '违规记录' },
   { key: 'rules', label: '广告规则' },
   { key: 'settings', label: '欢迎词设置' },
+  { key: 'joinrequests', label: '入群申请' },
   { key: 'admins', label: '管理员与权限' },
   { key: 'logs', label: '操作日志' },
 ];
@@ -400,6 +403,7 @@ function switchView(key) {
   document.title = title + ' · QQ 机器人管理后台';
   if (key === 'overview') renderOverview();
   else if (key === 'settings') renderSettings();
+  else if (key === 'joinrequests') renderJoinRequests();
   else renderCollection(key);
 }
 
@@ -754,6 +758,139 @@ async function openModal(name, id) {
   }
 }
 
+/* ================= 入群申请 ================= */
+const JOIN_STATUS = {
+  pending: { label: '待审批', cls: 'muted' },
+  approved: { label: '已通过', cls: 'active' },
+  declined: { label: '已拒绝', cls: 'disabled' },
+};
+const JOIN_SOURCE = { self_apply: '主动申请', invited: '被邀请' };
+
+async function renderJoinRequests() {
+  const root = $('#view-joinrequests');
+  const st = state.joinrequests;
+  const qs = new URLSearchParams({ page: st.page, pageSize: st.pageSize });
+  if (st.search) qs.set('search', st.search);
+  if (st.filters.status) qs.set('status', st.filters.status);
+
+  let d = {};
+  try {
+    const r = await api('/api/admin/joinrequests?' + qs.toString());
+    if (!r.data.ok) throw new Error(r.data.error || '读取失败');
+    d = r.data;
+  } catch (e) {
+    root.innerHTML = '<div class="panel"><div class="head">入群申请</div>'
+      + '<div class="empty">加载失败：' + esc(e.message) + '</div></div>';
+    return;
+  }
+
+  const items = d.items || [];
+  const total = d.total ?? 0;
+  const totalPages = d.totalPages ?? 1;
+
+  const rows = items.map((it) => {
+    const s = JOIN_STATUS[it.status] || { label: it.status || '-', cls: 'muted' };
+    const pending = it.status === 'pending';
+    return '<tr>'
+      + '<td>' + esc(fmtTime(it.applyAt || it.createdAt)) + '</td>'
+      + '<td>' + esc(it.username || '-') + '</td>'
+      + '<td data-full="' + esc(it.memberOpenid) + '" class="cell-more" title="' + esc(it.memberOpenid) + '">'
+      + esc(short(it.memberOpenid)) + '</td>'
+      + '<td>' + esc(JOIN_SOURCE[it.applySource] || it.applySource || '-') + '</td>'
+      + '<td>' + (it.riskTips ? '<span class="pill disabled">有风险</span>' : '-') + '</td>'
+      + '<td><span class="pill ' + s.cls + '">' + esc(s.label) + '</span></td>'
+      + '<td>' + esc(it.handledBy || '-') + '</td>'
+      + '<td style="white-space:nowrap">'
+      + (pending
+        ? '<button class="primary" data-approve="' + esc(it.id) + '">通过</button> '
+          + '<button data-decline="' + esc(it.id) + '">拒绝</button> '
+          + '<button data-decline-black="' + esc(it.id) + '">拒绝+拉黑</button>'
+        : '<span class="hint">' + esc(it.reason || '') + '</span>')
+      + '</td></tr>';
+  }).join('');
+
+  root.innerHTML = `
+    <div class="panel">
+      <div class="toolbar">
+        <input id="q_joinrequests" placeholder="搜索申请人 / openid / 群" value="${esc(st.search)}">
+        <select data-jfilter="status">
+          <option value="">状态（全部）</option>
+          ${Object.entries(JOIN_STATUS).map(([k, v]) => '<option value="' + k + '"'
+            + (st.filters.status === k ? ' selected' : '') + '>' + v.label + '</option>').join('')}
+        </select>
+        <span class="spacer"></span>
+        <button id="jrRefresh">刷新</button>
+      </div>
+      ${items.length
+        ? '<div class="table-wrap"><table><thead><tr><th>申请时间</th><th>申请人</th><th>openid</th>'
+          + '<th>来源</th><th>风险</th><th>状态</th><th>处理人</th><th>操作</th></tr></thead>'
+          + '<tbody>' + rows + '</tbody></table></div>'
+        : '<div class="empty">暂无入群申请记录</div>'}
+      <div class="pager">
+        <button data-jpage="prev" ${st.page <= 1 ? 'disabled' : ''}>上一页</button>
+        <span>第 ${st.page} / ${totalPages} 页 · 共 ${total} 条</span>
+        <button data-jpage="next" ${st.page >= totalPages ? 'disabled' : ''}>下一页</button>
+        <select data-jpagesize>
+          ${[10, 20, 50].map((n) => '<option value="' + n + '"'
+            + (st.pageSize === n ? ' selected' : '') + '>' + n + ' 条/页</option>').join('')}
+        </select>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:18px">
+      <div class="head">说明</div>
+      <div style="padding:18px;line-height:1.9;font-size:13px;color:var(--muted)">
+        <p>· 只有当<b>机器人是群管理员</b>时，平台才会推送入群申请事件 <code>GROUP_JOIN_REQUEST</code>（需在开放平台勾选「入群申请」）。</p>
+        <p>· 「拒绝并拉黑」会调用平台审批接口同时写入群黑名单，可真正阻止该账号再次申请；普通「拒绝」仅本次拒绝。</p>
+        <p>· 自动策略在「欢迎词设置」里配置：黑名单自动拒绝（默认开）、自动通过（默认关）。</p>
+      </div>
+    </div>`;
+
+  const input = $('#q_joinrequests', root);
+  let timer = null;
+  input?.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { st.search = input.value.trim(); st.page = 1; renderJoinRequests(); }, 300);
+  });
+
+  const sel = $('[data-jfilter="status"]', root);
+  sel?.addEventListener('change', () => { st.filters.status = sel.value; st.page = 1; renderJoinRequests(); });
+
+  const sizeSel = $('[data-jpagesize]', root);
+  sizeSel?.addEventListener('change', () => { st.pageSize = Number(sizeSel.value); st.page = 1; renderJoinRequests(); });
+
+  $('#jrRefresh', root)?.addEventListener('click', () => renderJoinRequests());
+
+  $$('[data-jpage]', root).forEach((b) => b.addEventListener('click', () => {
+    st.page += b.dataset.jpage === 'next' ? 1 : -1;
+    if (st.page < 1) st.page = 1;
+    renderJoinRequests();
+  }));
+
+  const submit = async (id, op, addToBlacklist) => {
+    try {
+      const r = await api('/api/admin/joinrequests', {
+        method: 'POST',
+        body: JSON.stringify({ id, op, addToBlacklist }),
+      });
+      if (!r.data.ok) { toast(r.data.error || '操作失败', true); return; }
+      toast(op === 'decline' ? (addToBlacklist ? '已拒绝并拉黑' : '已拒绝') : '已通过');
+      renderJoinRequests();
+    } catch (e) {
+      toast('操作失败：' + e.message, true);
+    }
+  };
+
+  $$('[data-approve]', root).forEach((b) => b.addEventListener('click', () => {
+    submit(b.dataset.approve, 'approve', false);
+  }));
+  $$('[data-decline]', root).forEach((b) => b.addEventListener('click', () => {
+    submit(b.dataset.decline, 'decline', false);
+  }));
+  $$('[data-decline-black]', root).forEach((b) => b.addEventListener('click', () => {
+    submit(b.dataset.declineBlack, 'decline', true);
+  }));
+}
+
 /* ================= 欢迎词设置 ================= */
 const SETTINGS_FIELDS = [
   { key: 'welcomeEnabled', type: 'bool', label: '迎宾 / 送别总开关' },
@@ -761,6 +898,11 @@ const SETTINGS_FIELDS = [
   { key: 'botWelcome', type: 'text', label: '机器人进群欢迎词' },
   { key: 'leaveNotice', type: 'text', label: '成员退群提示' },
   { key: 'autoBlacklistOnLeave', type: 'bool', label: '成员退群自动拉黑' },
+  { key: 'joinRequestEnabled', type: 'bool', label: '处理入群申请（GROUP_JOIN_REQUEST）' },
+  { key: 'joinAutoRejectBlacklist', type: 'bool', label: '黑名单申请人自动拒绝并拉黑' },
+  { key: 'joinAutoApprove', type: 'bool', label: '入群申请自动通过（风险账号除外）' },
+  { key: 'joinNotice', type: 'text', label: '入群申请群内通知（支持 {name} {source} {time} {tips}）' },
+  { key: 'joinRejectReason', type: 'text', label: '自动拒绝理由' },
 ];
 
 async function renderSettings() {
@@ -806,6 +948,8 @@ async function renderSettings() {
     + '<div style="padding:18px;line-height:1.9;font-size:13px;color:var(--muted)">'
     + '<p>· 文案留空 = 使用内置默认；「群管理」里可给单个群设置专属欢迎词/退群提示，优先于这里。</p>'
     + '<p>· 新成员进群欢迎依赖平台事件 <code>GROUP_MEMBER_ADD</code>，需在 QQ 开放平台「事件订阅」勾选「群成员加入」；退群提示同理需勾选「群成员退出」。</p>'
+    + '<p>· <b>排障技巧</b>：事件一到就会写操作日志（动作 <code>member_join</code> / <code>member_leave</code> / <code>join_request</code>）。如果日志里没有对应记录，说明平台没推送事件（订阅未勾选）；如果有记录但群里没消息，看 <code>send_failed</code> 记录里的平台错误码。</p>'
+    + '<p>· 入群申请 <code>GROUP_JOIN_REQUEST</code> 只在<b>机器人是群管理员</b>时才会推送；黑名单申请可在「入群申请」里一键拒绝并写入群黑名单，这是真正阻止重新入群的方式。</p>'
     + '<p>· 群机器人出站消息不支持 @ 第三人，文案为纯文本群消息。</p>'
     + '<p>· 退群自动拉黑：成员退出后 openid 进入机器人黑名单，之后发言一律忽略；平台无入群拦截接口，无法阻止其重新入群（重新入群会提示管理员）。</p>'
     + '</div></div>';

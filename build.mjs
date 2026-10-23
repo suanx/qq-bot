@@ -32,6 +32,8 @@ const REQUIRED = [
   'cloud-functions/api/admin/rules.js',
   'cloud-functions/api/admin/admins.js',
   'cloud-functions/api/admin/logs.js',
+  'cloud-functions/api/admin/settings.js',
+  'cloud-functions/api/admin/joinrequests.js',
   'src/core.js',
   'src/handlers.js',
   'src/verify.js',

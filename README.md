@@ -10,6 +10,7 @@ QQ 官方机器人（Webhook 模式）+ 大模型对话 + 群管理（广告过�
 | 🛡 广告过滤 | 内置规则（联系方式/链接/诱导/刷屏）+ 自定义关键词/正则（环境变量 + 后台动态维护） |
 | ⚖️ 违规处罚 | 警告回复自动 @ 违规者（被动回复原生行为，先警告后撤回保证可达）→ 撤回 → 撤回+阶梯禁言（按 `AD_ACTION` 分级，最长可配 30 天） |
 | 👋 进群欢迎 | 新成员进群（`GROUP_MEMBER_ADD`）、机器人被拉进群自动欢迎；**欢迎词后台可自定义**（全局 + 按群覆盖） |
+| 📥 入群申请 | 用户申请加群（`GROUP_JOIN_REQUEST`）→ 群内通知管理员 / 后台一键通过·拒绝·拒绝并拉黑；黑名单账号自动拒绝并写入平台群黑名单 |
 | 🚪 退群处理 | 成员退群（`GROUP_MEMBER_REMOVE`）自动发退群提示并加入黑名单；另支持管理员 `/退群 @某人` 手动登记 |
 | 🛠 管理指令 | 禁言/解禁/踢人/拉黑/退群登记/违规分/开关功能（openid 白名单） |
 | 💰 成本护栏 | 每分钟频控 + 每日调用预算上限 |
@@ -24,7 +25,7 @@ qq-bot/
 ├── .env.example                 # 环境变量模板
 ├── admin/
 │   └── index.html               # 管理后台前端（原生 HTML/CSS/JS，零依赖）
-├── functions/                   # EdgeOne Pages 函数（文件即路由）
+├── cloud-functions/             # EdgeOne Pages 函数（文件即路由）
 │   └── api/
 │       ├── qq/
 │       │   ├── webhook.js       # POST /api/qq/webhook
@@ -33,11 +34,13 @@ qq-bot/
 │           ├── login.js         # POST   /api/admin/login
 │           ├── logout.js        # POST   /api/admin/logout
 │           ├── me.js            # GET    /api/admin/me
-│       ├── overview.js      # GET    /api/admin/overview
+│           ├── overview.js      # GET    /api/admin/overview
 │           ├── groups.js        # GET/POST/PUT/DELETE
 │           ├── members.js
 │           ├── violations.js
 │           ├── rules.js
+│           ├── settings.js      # GET/PUT 全局欢迎词与入群申请策略
+│           ├── joinrequests.js  # GET 列表 / POST 审批 / DELETE
 │           ├── admins.js
 │           └── logs.js          # GET/DELETE（只读，禁止外部写入）
 └── src/
@@ -62,7 +65,7 @@ qq-bot/
 ## 🚀 部署
 
 ### 方式 A：控制台直接上传（推荐首次使用）
-1. 把 `functions/`、`src/`、`admin/`、`package.json` 压缩为 `qq-bot.zip`（保持它们在 zip 根目录）
+1. 把 `cloud-functions/`、`src/`、`admin/`、`package.json` 压缩为 `qq-bot.zip`（保持它们在 zip 根目录）
 2. **不要**打包 `.env`、`node_modules`
 3. [EdgeOne Pages 控制台](https://console.cloud.tencent.com/edgeone/pages) → 创建项目 → 「直接上传」
 4. 部署后得到域名，如 `https://xxx.edgeone.app`
@@ -76,12 +79,12 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 ### 方式 C：Git / CI/CD
 关联 GitHub / Gitee，push 自动触发构建部署。
 
-> **构建提示**：`functions/api/qq/webhook.js` 通过 `../../../src/core.js` 引用根目录 `src/`。EdgeOne 构建器通常会打包函数目录外的相对引用，首次部署请确认 `src/*.js` 被正确 bundle。
+> **构建提示**：`cloud-functions/api/qq/webhook.js` 通过 `../../../src/core.js` 引用根目录 `src/`。Git 部署模式下仓库根即站点根，Node Functions 可直接解析跨目录的 ESM 相对引用，无需内联打包；控制台直传时请确保 `src/` 与 `cloud-functions/` 同级保留在压缩包根目录。
 
 ### ⚠️ 运行时注意事项（重要）
-- 本项目部署在 EdgeOne **边缘函数（`functions/` 目录，V8 运行时）**。该运行时提供的是标准 **Web Crypto API**，**不保证存在 `node:crypto`**。
-- 因此验签统一使用 `globalThis.crypto.subtle` 实现（见 `src/verify.js`）。
-- 若你的边缘环境实测 `crypto.subtle.importKey({ name: 'Ed25519' })` 报不支持，请把函数迁移到 **Node.js `cloud-functions` 运行时**（`node:crypto` 必可用），并相应调整 `ctx.waitUntil` 的使用方式。
+- 本项目跑在 EdgeOne **Node Functions（`cloud-functions/` 目录，Node 20 运行时）**，不是边缘 V8 函数。
+- 原因：边缘 V8 的 WebCrypto 不支持 **Ed25519**（`importKey` 抛 `Param Invalid`），验签无法完成；Node 运行时自带 `node:crypto`，验签稳定。
+- 验签公钥由 `APP_SECRET` 按官方算法派生（`src/verify.js`），平台侧没有独立的公钥展示入口。
 
 ## 🔐 环境变量
 
@@ -111,6 +114,7 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 | `WELCOME_MEMBER` | | 新成员进群欢迎词（后台「欢迎词设置」优先） |
 | `WELCOME_BOT` | | 机器人进群欢迎词 |
 | `LEAVE_NOTICE` | | 成员退群提示文案 |
+| `JOIN_NOTICE` | | 入群申请群内通知文案，支持 `{name}` `{source}` `{time}` `{tips}` |
 | `AUTO_BLACKLIST_ON_LEAVE` | | 成员退群自动拉黑，默认 1 |
 | `ADMIN_OPENIDS` | 管理指令 | 管理员 openid，逗号分隔 |
 | `ADMIN_USERNAME` | 后台 | 默认 `admin` |
@@ -130,8 +134,11 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 5. 订阅事件：
    - **必勾**（`GROUP_AND_C2C_EVENT` 1<<25）：`GROUP_AT_MESSAGE_CREATE`（群@消息）、`C2C_MESSAGE_CREATE`（私聊）、`GROUP_ADD_ROBOT`（机器人进群欢迎）
    - **迎宾/送别必勾**（`GROUP_MEMBER_EVENT` 1<<24）：`GROUP_MEMBER_ADD`（新成员进群→欢迎）、`GROUP_MEMBER_REMOVE`（成员退群→提示+拉黑）
+   - **入群申请**（同属 `GROUP_MEMBER_EVENT` 1<<24）：`GROUP_JOIN_REQUEST`（用户申请加群→通知/审批）。**只有机器人是群管理员时才会推送**
    - **建议**：`GROUP_DEL_ROBOT`（移出群→标记停用）、`FRIEND_ADD`（加好友引导）、`FRIEND_DEL`
-6. 把机器人拉进群，给它**群管理员**身份（禁言/撤回需要）
+6. 把机器人拉进群，给它**群管理员**身份（禁言/撤回/入群审批都需要）
+
+> **排障自证**：进群 / 退群 / 入群申请事件一到就写操作日志（`member_join` / `member_leave` / `join_request`）。日志没有记录 = 平台没推送（订阅未勾）；有记录但群里没消息 = 看 `send_failed` 记录里的平台错误码（频控 / 未开主动消息 / 机器人不在群）。
 
 ## 🖥 管理后台
 
@@ -153,6 +160,7 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 - **违规记录**：查看/新增/更正/删除，含命中规则、命中内容、处置动作
 - **广告规则**：关键词 / 正则动态维护（**立即对机器人生效**），可启停
 - **欢迎词设置**：新成员进群欢迎词 / 机器人进群欢迎词 / 成员退群提示 **全部后台自定义**，含迎宾总开关、退群自动拉黑开关（保存即生效，无需重新部署）
+- **入群申请**：`GROUP_JOIN_REQUEST` 落库列表（申请人 / 来源 / 风险 / 状态），支持**通过 / 拒绝 / 拒绝并拉黑**（拉黑即写入平台群黑名单，阻止再次申请）；自动策略在「欢迎词设置」里开关
 - **管理员与权限**：后台账号与 QQ 侧管理员 openid 管理，角色 `owner`/`admin`/`viewer`，状态 `enabled`/`disabled`
 - **操作日志**：所有后台写操作自动留痕（操作人、角色、动作、目标、详情）
 
@@ -160,8 +168,8 @@ npx edgeone pages deploy ./qq-bot.zip -n <项目名>
 
 | 角色 | 读 | 写 |
 |---|---|---|
-| `owner` | 全部 | 群/成员/违规/规则/管理员 |
-| `admin` | 全部 | 群/成员/违规/规则 |
+| `owner` | 全部 | 群/成员/违规/规则/管理员/设置/入群申请 |
+| `admin` | 全部 | 群/成员/违规/规则/设置/入群申请 |
 | `viewer` | 全部 | 无 |
 
 **接口约定**
@@ -232,7 +240,7 @@ node probe/admin-e2e.mjs  # 管理后台端到端（需先起 dev server）
 
 ### 新增
 - 管理后台前端 `admin/index.html`（原生实现，零依赖）
-- 后台接口 `functions/api/admin/*`（登录/登出/当前用户/概览/群/成员/违规/规则/管理员/日志）
+- 后台接口 `cloud-functions/api/admin/*`（登录/登出/当前用户/概览/群/成员/违规/规则/管理员/日志/设置/入群申请）
 - 角色权限矩阵与操作日志审计
 - AI 每分钟频控 + 每日预算上限（成本护栏）
 - 探针脚本 `probe/e2e.mjs`、`probe/admin-e2e.mjs`

@@ -68,6 +68,18 @@ export async function logViolation(kv, data) {
   });
 }
 
+/** 写操作日志（机器人自动处置记录，后台「操作日志」可查） */
+export async function logAction(kv, data) {
+  const repo = createRepo(kv);
+  return repo.create(COLLECTIONS.LOGS, {
+    actor: data.actor || 'system',
+    actorRole: data.actorRole || 'bot',
+    action: data.action || '',
+    target: data.target || '',
+    detail: data.detail || '',
+  });
+}
+
 /** 统计计数自增（按天 + 累计） */
 export async function bumpStat(kv, name, delta = 1) {
   const day = beijingDay();
@@ -111,8 +123,88 @@ export async function setGroupFlag(kv, groupOpenid, name, on) {
   await kv.put(`flag:${groupOpenid}:${name}`, !!on);
 }
 
-/** 后台管理员 openid 列表（仅启用状态） */
-export async function loadAdminOpenids(kv) {
+/** 读取群档案（不存在返回 null） */
+export async function getGroupDoc(kv, groupOpenid) {
+  if (!groupOpenid) return null;
+  return createRepo(kv).get(COLLECTIONS.GROUPS, groupOpenid);
+}
+
+/** 读取成员档案（不存在返回 null） */
+export async function getMemberDoc(kv, groupOpenid, memberOpenid) {
+  if (!groupOpenid || !memberOpenid) return null;
+  return createRepo(kv).get(COLLECTIONS.MEMBERS, `${groupOpenid}:${memberOpenid}`);
+}
+
+/**
+ * 全局设置（单条记录，id 固定为 WELCOME，后台「欢迎词设置」可编辑）
+ * 字段：welcomeEnabled / memberWelcome / botWelcome / leaveNotice / autoBlacklistOnLeave
+ */
+export const SETTINGS_WELCOME_ID = 'welcome';
+
+export async function loadSettings(kv) {
+  try {
+    return (await createRepo(kv).get(COLLECTIONS.SETTINGS, SETTINGS_WELCOME_ID)) || {};
+  } catch (e) {
+    console.warn('读取设置失败，使用默认值:', e.message);
+    return {};
+  }
+}
+
+export async function saveSettings(kv, patch = {}) {
+  const repo = createRepo(kv);
+  const cur = await repo.get(COLLECTIONS.SETTINGS, SETTINGS_WELCOME_ID);
+  if (!cur) {
+    return repo.create(COLLECTIONS.SETTINGS, {
+      id: SETTINGS_WELCOME_ID,
+      welcomeEnabled: true,
+      autoBlacklistOnLeave: true,
+      ...patch,
+    });
+  }
+  return repo.update(COLLECTIONS.SETTINGS, SETTINGS_WELCOME_ID, patch);
+}
+
+/**
+ * 入群申请记录（GROUP_JOIN_REQUEST 事件落库，后台「入群申请」可查/审批）
+ * 主键：`${groupOpenid}:${memberOpenid}`，同一人重复申请覆盖并更新状态
+ */
+export function joinRequestId(groupOpenid, memberOpenid) {
+  return `${groupOpenid}:${memberOpenid}`;
+}
+
+export async function saveJoinRequest(kv, data) {
+  const repo = createRepo(kv);
+  const id = joinRequestId(data.groupOpenid, data.memberOpenid);
+  const patch = {
+    groupOpenid: data.groupOpenid,
+    memberOpenid: data.memberOpenid,
+    username: data.username || '',
+    joinRequestId: data.joinRequestId || '',
+    applySource: data.applySource || '',
+    invitedBy: data.invitedBy || '',
+    verifyInfo: data.verifyInfo || '',
+    riskTips: data.riskTips || '',
+    isBot: !!data.isBot,
+    status: data.status || 'pending',
+    handledBy: data.handledBy || '',
+    reason: data.reason || '',
+    applyAt: data.applyAt || new Date().toISOString(),
+  };
+  const cur = await repo.get(COLLECTIONS.JOIN_REQUESTS, id);
+  if (!cur) return repo.create(COLLECTIONS.JOIN_REQUESTS, { id, ...patch });
+  return repo.update(COLLECTIONS.JOIN_REQUESTS, id, patch);
+}
+
+export async function updateJoinRequest(kv, id, patch = {}) {
+  const repo = createRepo(kv);
+  return repo.update(COLLECTIONS.JOIN_REQUESTS, id, patch);
+}
+
+export async function getJoinRequest(kv, id) {
+  return createRepo(kv).get(COLLECTIONS.JOIN_REQUESTS, id);
+}
+
+/** 后台管理员 openid 列表（仅启用状态） */export async function loadAdminOpenids(kv) {
   const repo = createRepo(kv);
   const admins = await repo.list(COLLECTIONS.ADMINS);
   return admins
@@ -123,4 +215,5 @@ export async function loadAdminOpenids(kv) {
 export default {
   touchGroup, touchMember, logViolation, bumpStat, readStats,
   beijingDay, getGroupFlag, setGroupFlag, loadAdminOpenids,
+  getGroupDoc, getMemberDoc, loadSettings, saveSettings,
 };
