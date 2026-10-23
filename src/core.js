@@ -11,7 +11,7 @@
 import { loadConfig } from './config.js';
 import { verifyRequest, loadPublicKey, derivePublicKey, signValidation } from './verify.js';
 import { handleMessage } from './handlers.js';
-import { replyMessage } from './qqapi.js';
+import { replyMessage, recallGroupMessage } from './qqapi.js';
 
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), {
@@ -35,6 +35,14 @@ async function dispatchEvent(evt, rawEnv) {
       },
       loadConfig(rawEnv),
     );
+    // 违规处置：警告回复成功后再撤回违规消息（保证被动回复引用的 msg_id 仍有效）
+    if (plan.recallMsgId && plan.chatType === 'group') {
+      try {
+        await recallGroupMessage(plan.targetId, plan.recallMsgId, loadConfig(rawEnv));
+      } catch (e) {
+        console.warn('违规消息撤回失败:', e.message);
+      }
+    }
   } catch (e) {
     console.error('处理事件失败:', e.message);
   }

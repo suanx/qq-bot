@@ -74,6 +74,7 @@ function adminHelp() {
     '· /撤回 —— 引用/回复要撤回的消息后发送',
     '· /踢 @某人 —— 移出群聊（需内邀权限）',
     '· /拉黑 @某人 —— 加入群黑名单（需内邀权限）',
+    '· /退群 @某人 —— 退群登记：发退群提示并加入黑名单',
     '· /违规分 @某人 —— 查询某人违规计数',
     '· /清违规 @某人 —— 清零违规计数',
   ].join('\n');
@@ -91,7 +92,7 @@ export function parseDuration(s) {
 
 /** 是否为管理员指令前缀 */
 export function isAdminCommand(text) {
-  return /^\/?(广告开|广告关|AI开|AI关|禁言|解禁|踢|拉黑|违规分|清违规|管理|撤回)/i
+  return /^\/?(广告开|广告关|AI开|AI关|禁言|解禁|踢|拉黑|退群|违规分|清违规|管理|撤回)/i
     .test(String(text || '').trim());
 }
 
@@ -182,6 +183,18 @@ async function handleAdminCommand(evt, ctx, cfg, kv) {
       ? '🚫 已加入群黑名单'
       : '🚫 已加入机器人黑名单（平台官方接口未开放，机器人将无视其全部消息）';
   }
+  // 退群登记：群内发退群提示（真 @ 本人）并加入黑名单。
+  // 平台无「成员退群」事件（群聊体系仅推送机器人自身被移出），无法自动感知，
+  // 由管理员手动触发；黑名单后该成员若再入群发言，机器人一律静默忽略。
+  if (/^\/?退群/.test(text)) {
+    if (!target) return '用法：/退群 @某人（发送退群提示并加入黑名单）';
+    await touchMember(kv, groupOpenid, target, { status: 'blacklisted' });
+    return [
+      `👋 <@${target}> 已退出群聊。`,
+      '该成员已加入机器人黑名单，其后续消息将被忽略；',
+      '为防止其再次入群，请管理员使用群管理功能将其移出。',
+    ].join('\n');
+  }
 
   // 违规分
   if (/^\/?违规分/.test(text)) {
@@ -213,14 +226,10 @@ async function handleAdViolation(evt, ctx, cfg, kv) {
   const level = ACTION_LEVEL[String(cfg.AD_ACTION || '').toLowerCase()] ?? 2;
 
   const actions = [];
-  if (level >= 1) {
-    try {
-      await recallGroupMessage(groupOpenid, ctx.msgId, cfg);
-      actions.push('已撤回');
-    } catch (e) {
-      console.warn('撤回失败:', e.message);
-    }
-  }
+  // 撤回不再在此处立即执行：警告回复以违规消息的 msg_id 做被动回复，
+  // 若先撤回，引用的消息不存在会导致回复发送失败。
+  // 改为标记 recallMsgId，由 core.js 在警告回复成功后再撤回（先警告后撤回）。
+  if (level >= 1 && ctx.msgId) ctx.recallMsgId = ctx.msgId;
   if (level >= 2 && action === 'mute' && muteSeconds > 0) {
     try {
       await muteMember(groupOpenid, user, muteSeconds, cfg);
@@ -255,7 +264,9 @@ async function handleAdViolation(evt, ctx, cfg, kv) {
 
   if (count >= 10) console.warn(`[moderation] ${groupOpenid}/${user} 违规已达 ${count} 次，建议人工处理`);
 
-  return `⚠️ @${user} 检测到广告/违规内容（规则：${ctx.adHit.rule}），第 ${count} 次违规，${actions.join('、') || '请遵守群规'}！`;
+  // 警告文案：<@openid> 由平台渲染为真实 @ 提及（此前 @openid 只是纯文本）
+  const actionText = actions.length ? `，${actions.join('、')}` : (level >= 1 ? '，消息将被撤回' : '');
+  return `⚠️ <@${user}> 你发送的内容违反群规（命中规则：${ctx.adHit.rule}，第 ${count} 次）${actionText}，请遵守群规！`;
 }
 
 /* ---------------- AI 对话 ---------------- */

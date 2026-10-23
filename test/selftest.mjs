@@ -324,24 +324,45 @@ await t('AD_ACTION=warn 时不撤回消息', async () => {
 });
 await t('AD_ACTION=delete 时撤回但不禁言', async () => {
   const env = { ...baseEnv, AD_ACTION: 'delete' };
+  let plan = null;
   const logs = await captureLogs(async () => {
     // 累计到阈值，验证 delete 级别下仍不禁言
     for (let i = 0; i < 3; i++) {
-      await handleMessage(groupMsg('加我vx: abcd1234', 'U9', 'G_ACT2', `M_ACT2_${i}`), env);
+      plan = await handleMessage(groupMsg('加我vx: abcd1234', 'U9', 'G_ACT2', `M_ACT2_${i}`), env);
     }
   });
-  assert.ok(logs.some((l) => l.includes('[MOCK] DELETE')), '应有撤回');
+  // 撤回改为「先警告后撤回」：plan 携带 recallMsgId，由 core.js 回复成功后执行
+  assert.ok(plan && plan.recallMsgId, '撤回计划应随 plan 返回（recallMsgId）');
   assert.ok(!logs.some((l) => l.includes('restrict_chat_setting')), `不应禁言，实际: ${logs}`);
 });
 await t('AD_ACTION=delete_mute 达阈值后禁言', async () => {
   const env = { ...baseEnv, AD_ACTION: 'delete_mute' };
+  let plan = null;
   const logs = await captureLogs(async () => {
     for (let i = 0; i < 3; i++) {
-      await handleMessage(groupMsg('加我vx: abcd1234', 'U9', 'G_ACT3', `M_ACT3_${i}`), env);
+      plan = await handleMessage(groupMsg('加我vx: abcd1234', 'U9', 'G_ACT3', `M_ACT3_${i}`), env);
     }
   });
-  assert.ok(logs.some((l) => l.includes('[MOCK] DELETE')), '应有撤回');
+  assert.ok(plan && plan.recallMsgId, '撤回计划应随 plan 返回（recallMsgId）');
   assert.ok(logs.some((l) => l.includes('restrict_chat_setting')), `应禁言，实际: ${logs}`);
+});
+await t('警告文案含真 @ 提及（<@openid>）', async () => {
+  const env = { ...baseEnv, AD_ACTION: 'delete' };
+  const plan = await handleMessage(groupMsg('加我vx: abcd1234', 'U9', 'G_AT1', 'M_AT1'), env);
+  assert.ok(plan && plan.content, '应有警告回复');
+  assert.match(plan.content, /<@U9>/, `应包含 <@U9> 真提及，实际: ${plan.content}`);
+  assert.match(plan.content, /违反群规/, `应包含违规提示，实际: ${plan.content}`);
+});
+await t('/退群 指令：退群提示 + 拉黑', async () => {
+  const e = groupMsg('/退群 <@LEAVER>', 'ADMIN1', 'G_LEAVE', 'M_L1');
+  const r = await handleMessage(e, baseEnv);
+  assert.ok(r && r.content, '应有退群提示');
+  assert.match(r.content, /<@LEAVER>/, `应真 @ 退群者，实际: ${r.content}`);
+  assert.match(r.content, /黑名单/, `应提示已拉黑，实际: ${r.content}`);
+  // 拉黑后该成员发言应被静默忽略
+  const e2 = groupMsg('我回来了', 'LEAVER', 'G_LEAVE', 'M_L2');
+  const r2 = await handleMessage(e2, baseEnv);
+  assert.equal(r2, null, '黑名单成员发言应被忽略');
 });
 
 console.log('\n[正文清理]');
