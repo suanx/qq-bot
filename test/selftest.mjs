@@ -346,18 +346,18 @@ await t('AD_ACTION=delete_mute 达阈值后禁言', async () => {
   assert.ok(plan && plan.recallMsgId, '撤回计划应随 plan 返回（recallMsgId）');
   assert.ok(logs.some((l) => l.includes('restrict_chat_setting')), `应禁言，实际: ${logs}`);
 });
-await t('警告文案含真 @ 提及（<@openid>）', async () => {
+await t('警告文案含真 @ 提及（qqbot-at-user 新协议）', async () => {
   const env = { ...baseEnv, AD_ACTION: 'delete' };
   const plan = await handleMessage(groupMsg('加我vx: abcd1234', 'U9', 'G_AT1', 'M_AT1'), env);
   assert.ok(plan && plan.content, '应有警告回复');
-  assert.match(plan.content, /<@U9>/, `应包含 <@U9> 真提及，实际: ${plan.content}`);
+  assert.match(plan.content, /<qqbot-at-user id="U9" \/>/, `应包含 qqbot-at-user 真提及，实际: ${plan.content}`);
   assert.match(plan.content, /违反群规/, `应包含违规提示，实际: ${plan.content}`);
 });
 await t('/退群 指令：退群提示 + 拉黑', async () => {
   const e = groupMsg('/退群 <@LEAVER>', 'ADMIN1', 'G_LEAVE', 'M_L1');
   const r = await handleMessage(e, baseEnv);
   assert.ok(r && r.content, '应有退群提示');
-  assert.match(r.content, /<@LEAVER>/, `应真 @ 退群者，实际: ${r.content}`);
+  assert.match(r.content, /<qqbot-at-user id="LEAVER" \/>/, `应真 @ 退群者，实际: ${r.content}`);
   assert.match(r.content, /黑名单/, `应提示已拉黑，实际: ${r.content}`);
   // 拉黑后该成员发言应被静默忽略
   const e2 = groupMsg('我回来了', 'LEAVER', 'G_LEAVE', 'M_L2');

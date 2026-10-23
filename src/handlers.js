@@ -190,7 +190,8 @@ async function handleAdminCommand(evt, ctx, cfg, kv) {
     if (!target) return '用法：/退群 @某人（发送退群提示并加入黑名单）';
     await touchMember(kv, groupOpenid, target, { status: 'blacklisted' });
     return [
-      `👋 <@${target}> 已退出群聊。`,
+      // 群聊 @ 新协议：<qqbot-at-user id="openid" />（旧 <@openid> 在群聊已不渲染）
+      `👋 <qqbot-at-user id="${target}" /> 已退出群聊。`,
       '该成员已加入机器人黑名单，其后续消息将被忽略；',
       '为防止其再次入群，请管理员使用群管理功能将其移出。',
     ].join('\n');
@@ -264,9 +265,10 @@ async function handleAdViolation(evt, ctx, cfg, kv) {
 
   if (count >= 10) console.warn(`[moderation] ${groupOpenid}/${user} 违规已达 ${count} 次，建议人工处理`);
 
-  // 警告文案：<@openid> 由平台渲染为真实 @ 提及（此前 @openid 只是纯文本）
+  // 警告文案：群聊 @ 用官方新协议 <qqbot-at-user id="openid" /> 渲染为真实 @ 提及
+  // （实测旧协议 <@openid> 在群聊出站消息中不渲染，客户端原样显示标签文本）
   const actionText = actions.length ? `，${actions.join('、')}` : (level >= 1 ? '，消息将被撤回' : '');
-  return `⚠️ <@${user}> 你发送的内容违反群规（命中规则：${ctx.adHit.rule}，第 ${count} 次）${actionText}，请遵守群规！`;
+  return `⚠️ <qqbot-at-user id="${user}" /> 你发送的内容违反群规（命中规则：${ctx.adHit.rule}，第 ${count} 次）${actionText}，请遵守群规！`;
 }
 
 /* ---------------- AI 对话 ---------------- */
