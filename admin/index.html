@@ -107,6 +107,8 @@
     .pager { flex-wrap: wrap; }
     /* 触屏提示：长按单元格可看完整内容（title 悬浮在触屏无效，改为点击弹详情） */
     .panel td[data-full] { cursor: pointer; }
+    /* 防 iOS 聚焦自动放大导致页面错位：触屏下控件字号一律 16px */
+    input, select, textarea { font-size: 16px; }
   }
 
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
@@ -133,11 +135,32 @@
   .bar-fill { background: var(--brand); height: 100%; }
   .bar-num { text-align: right; color: var(--muted); font-size: 12px; }
 
-  .mask { position: fixed; inset: 0; background: rgba(16,24,40,.45); display: grid; place-items: center; padding: 24px; z-index: 50; }
-  .modal { background: var(--panel); border-radius: 12px; width: 460px; max-width: 100%; box-shadow: var(--shadow); }
-  .modal .head { padding: 16px 20px; border-bottom: 1px solid var(--border); font-weight: 600; }
-  .modal .body { padding: 18px 20px; display: grid; gap: 14px; max-height: 62vh; overflow: auto; }
-  .modal .foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+  .mask { position: fixed; inset: 0; background: rgba(16,24,40,.45); display: grid; place-items: center; padding: 24px; z-index: 50; overflow-y: auto; }
+  /* 自适应弹窗：永不超出视口，超长内容在弹窗内部滚动，底部按钮始终可见 */
+  .modal { background: var(--panel); border-radius: 12px; width: 460px; max-width: 100%; max-height: calc(100vh - 48px); display: flex; flex-direction: column; box-shadow: var(--shadow); }
+  .modal .head { padding: 16px 20px; border-bottom: 1px solid var(--border); font-weight: 600; flex-shrink: 0; }
+  .modal .body { padding: 18px 20px; display: grid; gap: 14px; flex: 1 1 auto; min-height: 0; overflow: auto; }
+  .modal .foot { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; flex-shrink: 0; }
+  .modal input, .modal select, .modal textarea { width: 100%; box-sizing: border-box; }
+
+  /* 轻提示（替代 alert，手机上不会被系统弹窗挡住） */
+  .toast { position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: #1b2233; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 14px;
+    box-shadow: 0 4px 14px rgba(16,24,40,.25); z-index: 70; max-width: calc(100vw - 40px); text-align: center;
+    animation: toast-in .18s ease; }
+  .toast.err { background: #b91c1c; }
+  @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  @media (max-width: 900px) {
+    .mask { padding: 10px; }
+    .modal { width: 100%; max-height: calc(100vh - 20px); border-radius: 10px; }
+    .modal .head { padding: 12px 14px; }
+    .modal .body { padding: 14px; gap: 12px; }
+    .modal .foot { padding: 12px 14px; }
+    /* 触屏可用性：控件 16px 防 iOS 聚焦放大，按钮加大并平分宽度 */
+    .modal input, .modal select, .modal textarea { font-size: 16px; }
+    .modal .foot .spacer { display: none; }
+    .modal .foot button { flex: 1; padding: 11px 0; font-size: 15px; }
+  }
 </style>
 </head>
 <body>
@@ -201,6 +224,15 @@ function fmtTime(iso) {
     + ' ' + p2(bj.getUTCHours()) + ':' + p2(bj.getUTCMinutes());
 }
 function short(s) { const t = String(s || ''); return t.length > 10 ? t.slice(0, 8) + '…' : t; }
+
+/** 轻提示：2.6 秒自动消失；isErr=true 显示红色错误样式 */
+function toast(msg, isErr = false) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (isErr ? ' err' : '');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2600);
+}
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
@@ -691,11 +723,12 @@ async function openModal(name, id) {
     try {
       const r = await api('/api/admin/' + name + (isEdit ? '?id=' + encodeURIComponent(id) : ''),
         { method: isEdit ? 'PUT' : 'POST', body: JSON.stringify(payload) });
-      if (!r.data.ok) { alert(r.data.error || '保存失败'); return; }
+      if (!r.data.ok) { toast(r.data.error || '保存失败', true); return; }
       close();
       renderCollection(name);
+      toast('已保存');
     } catch (e) {
-      alert('保存失败：' + e.message);
+      toast('保存失败：' + e.message, true);
     }
   });
 
@@ -704,11 +737,12 @@ async function openModal(name, id) {
       if (!confirm('确认删除该记录？此操作会记入操作日志。')) return;
       try {
         const r = await api('/api/admin/' + name + '?id=' + encodeURIComponent(id), { method: 'DELETE' });
-        if (!r.data.ok) { alert(r.data.error || '删除失败'); return; }
+        if (!r.data.ok) { toast(r.data.error || '删除失败', true); return; }
         close();
         renderCollection(name);
+        toast('已删除');
       } catch (e) {
-        alert('删除失败：' + e.message);
+        toast('删除失败：' + e.message, true);
       }
     });
   }
