@@ -99,6 +99,14 @@
     #collapseBtn { display: none; }
     header { padding: 12px 14px; }
     main { padding: 16px 14px 40px; }
+    /* 修复手机端：表格改为横向滑动而不是被截断/挤压 */
+    .panel { overflow: visible; }
+    .panel .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .panel table { min-width: 640px; }
+    .toolbar input { width: 100%; flex: 1 1 160px; }
+    .pager { flex-wrap: wrap; }
+    /* 触屏提示：长按单元格可看完整内容（title 悬浮在触屏无效，改为点击弹详情） */
+    .panel td[data-full] { cursor: pointer; }
   }
 
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
@@ -435,13 +443,13 @@ async function renderOverview() {
 
   const recent = d.recentViolations || [];
   const recentHtml = recent.length
-    ? '<table><thead><tr><th>时间</th><th>群</th><th>成员</th><th>规则</th>'
+    ? '<div class="table-wrap"><table><thead><tr><th>时间</th><th>群</th><th>成员</th><th>规则</th>'
       + '<th>命中</th><th>处置</th></tr></thead><tbody>'
       + recent.map((v) => '<tr><td>' + esc(fmtTime(v.createdAt)) + '</td><td>'
         + esc(short(v.groupOpenid)) + '</td><td>' + esc(short(v.memberOpenid))
         + '</td><td>' + esc(v.rule) + '</td><td>' + esc(v.matched)
         + '</td><td>' + esc(v.action) + '</td></tr>').join('')
-      + '</tbody></table>'
+      + '</tbody></table></div>'
     : '<div class="empty">暂无违规记录</div>';
 
   $('#view-overview').innerHTML = `
@@ -509,7 +517,11 @@ async function renderCollection(name) {
       if (c === 'content' || c === 'detail' || c === 'target') {
         const t = String(v ?? '');
         const shown = t.length > 40 ? t.slice(0, 40) + '…' : t;
-        return '<td title="' + esc(t) + '">' + (esc(shown) || '-') + '</td>';
+        if (t.length > 40) {
+          // 手机端无法悬浮查看 title，点击弹出全文详情
+          return '<td title="' + esc(t) + '" data-full="' + esc(t) + '" class="cell-more">' + (esc(shown) || '-') + '</td>';
+        }
+        return '<td>' + (esc(shown) || '-') + '</td>';
       }
       return '<td>' + esc(v ?? '-') + '</td>';
     }).join('')
@@ -527,7 +539,7 @@ async function renderCollection(name) {
       </div>
       <div id="msg_${name}"></div>
       ${items.length
-    ? '<table><thead><tr>' + headHtml + '<th>操作</th></tr></thead><tbody>' + bodyHtml + '</tbody></table>'
+    ? '<div class="table-wrap"><table><thead><tr>' + headHtml + '<th>操作</th></tr></thead><tbody>' + bodyHtml + '</tbody></table></div>'
     : '<div class="empty">暂无数据</div>'}
       <div class="pager">
         <button data-page="prev" ${st.page <= 1 ? 'disabled' : ''}>上一页</button>
@@ -589,6 +601,25 @@ function bindCollectionEvents(name, schema, st, totalPages) {
   $$('[data-edit]', root).forEach((b) => {
     b.addEventListener('click', () => openModal(name, b.dataset.edit));
   });
+
+  // 手机端：点击截断单元格弹出全文详情（触屏无 hover title）
+  $$('.cell-more', root).forEach((td) => {
+    td.addEventListener('click', () => showDetail(td.dataset.full));
+  });
+}
+
+/** 全文详情弹窗（两端通用） */
+function showDetail(text) {
+  const mask = document.createElement('div');
+  mask.className = 'mask';
+  mask.innerHTML =
+    '<div class="modal"><div class="head">详情</div>'
+    + '<div class="body"><div style="white-space:pre-wrap;word-break:break-all;line-height:1.6">'
+    + esc(text) + '</div></div>'
+    + '<div class="foot"><span class="spacer"></span><button id="detailClose">关闭</button></div></div>';
+  document.body.appendChild(mask);
+  mask.addEventListener('click', (e) => { if (e.target === mask) mask.remove(); });
+  $('#detailClose', mask).addEventListener('click', () => mask.remove());
 }
 
 /* ================= 弹窗 ================= */

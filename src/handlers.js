@@ -168,14 +168,19 @@ async function handleAdminCommand(evt, ctx, cfg, kv) {
     }
   }
   if (/^\/?拉黑/.test(text)) {
-    if (!target) return '用法：/拉黑 @某人（需先移出群）';
+    if (!target) return '用法：/拉黑 @某人';
+    let official = false;
     try {
       await blacklistMember(groupOpenid, target, true, cfg);
-      await touchMember(kv, groupOpenid, target, { status: 'blacklisted' });
-      return '🚫 已加入群黑名单';
+      official = true;
     } catch (e) {
-      return `拉黑失败：${/11253|权限/.test(e.message) ? '该接口为内邀白名单能力，需联系平台申请' : e.message}`;
+      // 官方拉黑接口为内邀白名单能力（11253 等），回落本地黑名单
+      console.warn('官方拉黑失败，回落本地黑名单:', e.message);
     }
+    await touchMember(kv, groupOpenid, target, { status: 'blacklisted' });
+    return official
+      ? '🚫 已加入群黑名单'
+      : '🚫 已加入机器人黑名单（平台官方接口未开放，机器人将无视其全部消息）';
   }
 
   // 违规分
@@ -332,11 +337,16 @@ export async function handleMessage(evt, rawEnv) {
   const content = stripMentions(rawContent);
   if (!content) return null;
 
+  // 修复：群消息事件的发言人标识是 author.member_openid（user_openid 仅 c2c 事件有），
+  // 此前只读 user_openid 导致群里全部记成 anonymous，管理员判定/成员登记/违规记录全部失效
+  const senderId = author.user_openid || author.member_openid
+    || d.user_openid || d.member_openid || null;
+
   const groupOpenid = d.group_openid || null;
   const ctx = {
     chatType: isC2C ? 'c2c' : 'group',
-    targetId: groupOpenid || author.user_openid,
-    sender: author.user_openid || 'anonymous',
+    targetId: groupOpenid || senderId,
+    sender: senderId || 'anonymous',
     text: content,
     msgId: d.id,
     mentions,
@@ -348,7 +358,12 @@ export async function handleMessage(evt, rawEnv) {
   if (groupOpenid) {
     await touchGroup(kv, groupOpenid);
     // 登记发言人进成员库（首次自动建档），后台「成员管理」可查 openid
-    await touchMember(kv, groupOpenid, ctx.sender);
+    const memberDoc = await touchMember(kv, groupOpenid, ctx.sender);
+    // 本地黑名单：被拉黑成员的消息一律静默忽略（官方拉黑接口为内邀能力，此处兜底生效）
+    if (memberDoc && memberDoc.status === 'blacklisted') {
+      console.log(`[blacklist] 忽略黑名单成员消息 ${groupOpenid}/${ctx.sender}`);
+      return null;
+    }
   }
 
   // 1) 管理指令（仅管理员）
@@ -359,9 +374,10 @@ export async function handleMessage(evt, rawEnv) {
     if (r) return { ...ctx, content: r };
   }
 
-  // 2) 广告过滤（仅群聊）
+  // 2) 广告过滤（仅群聊；管理员豁免）
   if (cfg.AD_FILTER_ENABLED && ctx.chatType === 'group'
-      && await getGroupFlag(kv, ctx.targetId, 'adfilter', true)) {
+      && await getGroupFlag(kv, ctx.targetId, 'adfilter', true)
+      && !(await isAdmin(cfg, kv, ctx.sender))) {
     // 合并后台动态规则与环境变量规则
     const dynamicRules = await loadAdRules(kv);
     const hit = checkAd(ctx.text, cfg, dynamicRules);
