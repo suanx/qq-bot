@@ -200,12 +200,21 @@ await t('阈值前仅警告', () => {
   assert.deepEqual(decideAction(1, cfgEmpty), { action: 'warn', muteSeconds: 0 });
   assert.deepEqual(decideAction(2, cfgEmpty), { action: 'warn', muteSeconds: 0 });
 });
-await t('达阈值后阶梯禁言', () => {
+await t('达阈值后阶梯禁言（未到踢出阈值）', () => {
   assert.equal(decideAction(3, cfgEmpty).muteSeconds, 600);
-  assert.equal(decideAction(4, cfgEmpty).muteSeconds, 1200);
+});
+await t('踢出阈值：第 4 次返回 kick', () => {
+  assert.deepEqual(decideAction(4, cfgEmpty), { action: 'kick', muteSeconds: 0 });
+  assert.deepEqual(decideAction(9, cfgEmpty), { action: 'kick', muteSeconds: 0 });
+});
+await t('AD_KICK_THRESHOLD=0 关闭踢出', () => {
+  const c = loadConfig({ AD_KICK_THRESHOLD: '0' });
+  assert.equal(decideAction(4, c).action, 'mute');
+  assert.equal(decideAction(20, c).muteSeconds, c.AD_MUTE_MAX_SECONDS);
 });
 await t('封顶生效', () => {
-  assert.equal(decideAction(20, cfgEmpty).muteSeconds, cfgEmpty.AD_MUTE_MAX_SECONDS);
+  const c = loadConfig({ AD_KICK_THRESHOLD: '0' });
+  assert.equal(decideAction(20, c).muteSeconds, c.AD_MUTE_MAX_SECONDS);
 });
 await t('违规计数 记录/读取/清零', async () => {
   const kv = await createKV({});
@@ -356,6 +365,49 @@ await t('警告文案为纯文本（依赖被动回复自动 @ 违规者，不�
   assert.ok(plan.msgId, '应为被动回复（引用违规消息 msg_id，客户端自动 @ 违规者）');
   assert.doesNotMatch(plan.content, /<@|qqbot-at-user/, `不应含 @ 标签（平台不渲染只会原样显示），实际: ${plan.content}`);
   assert.match(plan.content, /违反群规/, `应包含违规提示，实际: ${plan.content}`);
+});
+await t('警告文案带 @昵称 前缀（author.username），不含规则名', async () => {
+  const env = { ...baseEnv, AD_ACTION: 'delete' };
+  const e = evt('GROUP_AT_MESSAGE_CREATE', {
+    group_openid: 'G_NAME', id: 'M_N1', content: '加我vx: abcd1234',
+    author: { member_openid: 'U_NAME', username: '小明' },
+  });
+  const plan = await handleMessage(e, env);
+  assert.ok(plan && plan.content, '应有警告回复');
+  assert.match(plan.content, /^@小明 /, `应以 @昵称 开头，实际: ${plan.content}`);
+  assert.match(plan.content, /（第 1 次）/, `应含实际次数，实际: ${plan.content}`);
+  assert.doesNotMatch(plan.content, /命中规则/, `不应暴露规则名，实际: ${plan.content}`);
+});
+await t('第 4 次违规：计划踢出并拉黑（kickAfterReply），文案为移出提示', async () => {
+  const env = { ...baseEnv, AD_ACTION: 'delete_mute', AD_MUTE_THRESHOLD: '1', AD_KICK_THRESHOLD: '4' };
+  let plan = null;
+  for (let i = 0; i < 4; i++) {
+    plan = await handleMessage(groupMsg('加我vx: abcd1234', 'U_KICK', 'G_KICK', `M_K_${i}`), env);
+  }
+  assert.ok(plan && plan.kickAfterReply, '第 4 次应携带 kickAfterReply');
+  assert.deepEqual(plan.kickAfterReply.memberOpenids, ['U_KICK']);
+  assert.equal(plan.kickAfterReply.addToBlacklist, true);
+  assert.match(plan.content, /（第 4 次）/, `应含次数，实际: ${plan.content}`);
+  assert.match(plan.content, /已被移出群聊并加入黑名单/, `应含移出提示，实际: ${plan.content}`);
+  assert.doesNotMatch(plan.content, /禁言/, `踢出时不应再提禁言，实际: ${plan.content}`);
+  // 本地黑名单已同步标记
+  const again = await handleMessage(groupMsg('我还在群里', 'U_KICK', 'G_KICK', 'M_K_AFTER'), env);
+  assert.equal(again, null, '被处置成员消息应被本地黑名单忽略');
+});
+await t('后台设置 adKickThreshold 优先于环境变量', async () => {
+  const { saveSettings } = await import('../src/records.js');
+  const kv = await createKV({});
+  await saveSettings(kv, { adKickThreshold: 2 });
+  try {
+    const env = { ...baseEnv, AD_MUTE_THRESHOLD: '1' };
+    let plan = null;
+    for (let i = 0; i < 2; i++) {
+      plan = await handleMessage(groupMsg('加我vx: abcd1234', 'U_KICK2', 'G_KICK2', `M_K2_${i}`), env);
+    }
+    assert.ok(plan && plan.kickAfterReply, '设置踢出阈值=2 时第 2 次应 kick');
+  } finally {
+    await saveSettings(kv, { adKickThreshold: '' }); // 还原，避免影响后续用例
+  }
 });
 await t('/退群 指令：退群提示 + 拉黑', async () => {
   const e = groupMsg('/退群 <@LEAVER>', 'ADMIN1', 'G_LEAVE', 'M_L1');
@@ -591,6 +643,46 @@ await t('settings PUT 保存并读回（仅白名单字段）', async () => {
   assert.equal(gj.item.joinRequestEnabled, true, '入群申请处理缺省开启');
   assert.equal(gj.item.joinAutoApprove, false, '自动通过缺省关闭');
   assert.equal(gj.item.joinAutoRejectBlacklist, true, '黑名单自动拒绝缺省开启');
+});
+await t('settings PUT 违规处置数值字段（数字类型 + effective 展示）', async () => {
+  const token = await signSession({ username: 'admin', role: 'owner' }, 'sess-secret', 3600);
+  const env = { ...baseEnv, ADMIN_SESSION_SECRET: 'sess-secret' };
+  const put = await settingsHandler({
+    request: new Request('https://x/api/admin/settings', {
+      method: 'PUT', headers: { cookie: `${SESSION_COOKIE}=${token}` },
+      body: JSON.stringify({ adMuteThreshold: '1', adKickThreshold: '4', adAction: 'delete_mute' }),
+    }),
+    env,
+  });
+  const pj = await put.json();
+  assert.equal(pj.ok, true, `应保存成功: ${JSON.stringify(pj)}`);
+  assert.equal(pj.item.adMuteThreshold, 1, '数值字段应存为数字');
+  assert.equal(pj.item.adKickThreshold, 4, '数值字段应存为数字');
+  assert.equal(pj.item.adAction, 'delete_mute');
+  const bad = await settingsHandler({
+    request: new Request('https://x/api/admin/settings', {
+      method: 'PUT', headers: { cookie: `${SESSION_COOKIE}=${token}` },
+      body: JSON.stringify({ adKickThreshold: 'abc' }),
+    }),
+    env,
+  });
+  assert.notEqual(bad.status, 200, '非法数字应拒绝');
+  const get = await settingsHandler({
+    request: new Request('https://x/api/admin/settings', {
+      headers: { cookie: `${SESSION_COOKIE}=${token}` },
+    }),
+    env,
+  });
+  const gdata = await get.json();
+  assert.ok(gdata.effective && 'adKickThreshold' in gdata.effective, 'GET 应返回 effective 生效值');
+  // 还原为空（回退环境变量），避免影响其他用例
+  await settingsHandler({
+    request: new Request('https://x/api/admin/settings', {
+      method: 'PUT', headers: { cookie: `${SESSION_COOKIE}=${token}` },
+      body: JSON.stringify({ adMuteThreshold: '', adKickThreshold: '', adAction: '' }),
+    }),
+    env,
+  });
 });
 
 /* ================= 入口 core ================= */

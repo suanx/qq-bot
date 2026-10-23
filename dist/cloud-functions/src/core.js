@@ -11,9 +11,9 @@
 import { loadConfig } from './config.js';
 import { verifyRequest, loadPublicKey, derivePublicKey, signValidation } from './verify.js';
 import { handleMessage } from './handlers.js';
-import { replyMessage, recallGroupMessage } from './qqapi.js';
+import { replyMessage, recallGroupMessage, kickMembers } from './qqapi.js';
 import { createKV } from './kv.js';
-import { logAction } from './records.js';
+import { logAction, touchMember } from './records.js';
 
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), {
@@ -68,6 +68,35 @@ async function dispatchEvent(evt, rawEnv) {
           target: plan.targetId,
           detail: `违规消息撤回失败：${e.message}（通常因机器人不是群管理员）`,
         });
+      }
+    }
+    // 违规升级处置：警告发出后再踢出群聊并拉黑
+    // （顺序不能反：成员先被移出群，被动回复会因目标不在群而发送失败）
+    if (plan.kickAfterReply && plan.chatType === 'group') {
+      const kv = createKV(rawEnv);
+      const cfg = loadConfig(rawEnv);
+      const ids = (plan.kickAfterReply.memberOpenids || []).filter(Boolean);
+      const addBlack = plan.kickAfterReply.addToBlacklist !== false;
+      const target = `${plan.targetId}/${ids.join(',')}`;
+      try {
+        await kickMembers(plan.targetId, ids, cfg, { addToBlacklist: addBlack });
+        await logAction(kv, {
+          action: 'kick',
+          target,
+          detail: `第${plan.kickAfterReply.count || '?'}次违规，已移出群聊${addBlack ? '并加入群黑名单' : ''}`,
+        });
+      } catch (e) {
+        // 踢人/拉黑为内邀接口（11253），未开通时不影响本地黑名单兜底
+        await logAction(kv, {
+          action: 'kick_failed',
+          target,
+          detail: `踢出失败：${e.message}（踢人接口需平台白名单；请管理员手动移出，机器人已写入本地黑名单）`,
+        });
+      }
+      // 本地黑名单兜底：无论平台接口是否可用，该成员后续发言一律静默忽略
+      for (const id of ids) {
+        await touchMember(kv, plan.targetId, id, { status: 'blacklisted', mutedUntil: null })
+          .catch(() => {});
       }
     }
   } catch (e) {

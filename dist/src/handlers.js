@@ -29,6 +29,12 @@ export function fmtDuration(sec) {
   return `${s} 秒`;
 }
 
+/** 后台设置里的正数字段：空值/非法值返回 null（表示沿用环境变量） */
+function posNum(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /**
  * 从原始正文提取被 @ 的 openid。
  * QQ v2 群消息事件中，@ 以 <@openid> 或 <@!openid> 形式出现在 content 内。
@@ -236,10 +242,25 @@ async function handleAdViolation(evt, ctx, cfg, kv) {
   const groupOpenid = ctx.targetId;
   const user = ctx.sender;
   const count = await recordViolation(kv, groupOpenid, user);
-  const { action, muteSeconds } = decideAction(count, cfg);
 
-  // 修复：真正按 cfg.AD_ACTION 决定执行力度（此前配置被忽略）
-  const level = ACTION_LEVEL[String(cfg.AD_ACTION || '').toLowerCase()] ?? 2;
+  // 后台「群设置」里的违规处置参数优先于环境变量（保存即生效，无需重新部署）
+  const settings = await loadSettings(kv).catch(() => ({}));
+  const eff = {
+    ...cfg,
+    AD_ACTION: String(settings.adAction || '').trim() || cfg.AD_ACTION,
+    AD_MUTE_THRESHOLD: posNum(settings.adMuteThreshold) ?? cfg.AD_MUTE_THRESHOLD,
+    AD_MUTE_SECONDS: posNum(settings.adMuteSeconds) ?? cfg.AD_MUTE_SECONDS,
+    AD_KICK_THRESHOLD: (settings.adKickThreshold === undefined || settings.adKickThreshold === '')
+      ? cfg.AD_KICK_THRESHOLD
+      : Math.max(0, Number(settings.adKickThreshold) || 0),
+  };
+
+  const { action, muteSeconds } = decideAction(count, eff);
+  // 第 N 次（默认 4）直接踢出群聊并拉黑，优先级高于禁言
+  const isKick = action === 'kick';
+
+  // 修复：真正按 AD_ACTION 决定执行力度（此前配置被忽略）
+  const level = ACTION_LEVEL[String(eff.AD_ACTION || '').toLowerCase()] ?? 2;
 
   const actions = [];
   // 撤回不再在此处立即执行：警告回复以违规消息的 msg_id 做被动回复，
@@ -267,8 +288,22 @@ async function handleAdViolation(evt, ctx, cfg, kv) {
     }
   }
 
+  if (isKick) {
+    // 踢人必须在警告发出之后执行（core.js 收到 kickAfterReply 再调用），
+    // 否则成员先被移出群，被动回复会因目标不在群而发送失败。
+    ctx.kickAfterReply = { memberOpenids: [user], addToBlacklist: true, count };
+    await logAction(kv, {
+      action: 'kick_planned',
+      target: `${groupOpenid}/${user}`,
+      detail: `第${count}次违规，警告后踢出群聊并拉黑`,
+    });
+  }
+
   // 落库：违规记录 + 成员档案
-  const effectiveAction = level === 0 ? 'warn' : (level === 1 ? 'delete' : (muteSeconds > 0 ? 'delete_mute' : 'delete'));
+  const muteApplied = !isKick && level >= 2 && muteSeconds > 0;
+  const effectiveAction = isKick
+    ? 'kick'
+    : (level === 0 ? 'warn' : (level === 1 ? 'delete' : (muteSeconds > 0 ? 'delete_mute' : 'delete')));
   await logViolation(kv, {
     groupOpenid,
     memberOpenid: user,
@@ -276,14 +311,15 @@ async function handleAdViolation(evt, ctx, cfg, kv) {
     matched: ctx.adHit.matched,
     content: ctx.text,
     action: effectiveAction,
-    muteSeconds: level >= 2 ? muteSeconds : 0,
+    muteSeconds: muteApplied ? muteSeconds : 0,
     count,
     msgId: ctx.msgId,
   });
   await touchMember(kv, groupOpenid, user, {
     violations: count,
-    status: level >= 2 && muteSeconds > 0 ? 'muted' : 'normal',
-    mutedUntil: level >= 2 && muteSeconds > 0
+    nickname: ctx.senderName || undefined,
+    status: isKick ? 'blacklisted' : (muteApplied ? 'muted' : 'normal'),
+    mutedUntil: muteApplied
       ? new Date(Date.now() + muteSeconds * 1000).toISOString()
       : null,
   });
@@ -291,10 +327,14 @@ async function handleAdViolation(evt, ctx, cfg, kv) {
 
   if (count >= 10) console.warn(`[moderation] ${groupOpenid}/${user} 违规已达 ${count} 次，建议人工处理`);
 
-  // 警告文案：本回复是引用违规消息的被动回复，客户端会自动在开头 @ 违规者
-  // （平台硬边界：群机器人出站消息不支持 @ 第三人，嵌入标签会原样显示，故不写 @ 标签）
+  // 警告文案：@昵称 为纯文本前缀（平台硬边界：群机器人出站消息不支持 @ 第三人，
+  // 嵌入 <@openid> / <qqbot-at-user> 都会原样显示）。昵称取事件 author.username。
+  const at = `@${ctx.senderName || '该成员'}`;
+  if (isKick) {
+    return `${at} ⚠️ 你发送的内容违反群规（第 ${count} 次），已被移出群聊并加入黑名单。`;
+  }
   const actionText = actions.length ? `，${actions.join('、')}` : (level >= 1 ? '，消息将被撤回' : '');
-  return `⚠️ 你发送的内容违反群规（命中规则：${ctx.adHit.rule}，第 ${count} 次）${actionText}，请遵守群规！`;
+  return `${at} ⚠️ 你发送的内容违反群规（第 ${count} 次）${actionText}，请遵守群规！`;
 }
 
 /* ---------------- AI 对话 ---------------- */
@@ -594,6 +634,8 @@ export async function handleMessage(evt, rawEnv) {
     chatType: isC2C ? 'c2c' : 'group',
     targetId: groupOpenid || senderId,
     sender: senderId || 'anonymous',
+    // 发言人昵称（群消息事件 author.username，官方 User 结构自带；用于警告文案 @昵称）
+    senderName: String(author.username || '').trim(),
     text: content,
     msgId: d.id,
     mentions,
@@ -604,8 +646,11 @@ export async function handleMessage(evt, rawEnv) {
   await bumpStat(kv, 'messages');
   if (groupOpenid) {
     await touchGroup(kv, groupOpenid);
-    // 登记发言人进成员库（首次自动建档），后台「成员管理」可查 openid
-    const memberDoc = await touchMember(kv, groupOpenid, ctx.sender);
+    // 登记发言人进成员库（首次自动建档），后台「成员管理」可查 openid / 昵称
+    const memberDoc = await touchMember(
+      kv, groupOpenid, ctx.sender,
+      ctx.senderName ? { nickname: ctx.senderName } : {},
+    );
     // 本地黑名单：被拉黑成员的消息一律静默忽略（官方拉黑接口为内邀能力，此处兜底生效）
     if (memberDoc && memberDoc.status === 'blacklisted') {
       console.log(`[blacklist] 忽略黑名单成员消息 ${groupOpenid}/${ctx.sender}`);

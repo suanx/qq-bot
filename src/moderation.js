@@ -26,9 +26,12 @@ export async function clearViolations(kv, groupOpenid, userOpenid) {
  * 根据次数决定动作（纯函数，便于测试）
  * 1~(threshold-1) 次：warn（仅警告）
  * threshold 次起：mute（禁言，时长阶梯递增）
+ * kickThreshold 次起：kick（踢出群聊 + 拉黑，优先级最高；0 表示关闭）
  */
 export function decideAction(count, cfg) {
   const th = Math.max(1, Number(cfg.AD_MUTE_THRESHOLD) || 3);
+  const kickAt = Math.max(0, Number(cfg.AD_KICK_THRESHOLD) || 0);
+  if (kickAt > 0 && count >= kickAt) return { action: 'kick', muteSeconds: 0 };
   if (count < th) return { action: 'warn', muteSeconds: 0 };
   // 阶梯：第 th 次 = AD_MUTE_SECONDS，之后翻倍，封顶 AD_MUTE_MAX_SECONDS
   const exp = count - th;

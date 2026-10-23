@@ -6,6 +6,7 @@
 import { guard, ok, fail, audit } from '../../../src/admin/api.js';
 import { loadSettings, saveSettings } from '../../../src/records.js';
 import { COLLECTIONS } from '../../../src/repo.js';
+import { loadConfig } from '../../../src/config.js';
 
 /** 可写字段白名单 */
 const ALLOW_FIELDS = [
@@ -19,7 +20,14 @@ const ALLOW_FIELDS = [
   'joinAutoRejectBlacklist', // 黑名单申请人自动拒绝并写入群黑名单
   'joinNotice',            // 入群申请群内通知文案（支持 {name}/{source}/{time}/{tips}）
   'joinRejectReason',      // 自动拒绝理由
+  'adAction',              // 违规处置力度 warn | delete | delete_mute
+  'adMuteThreshold',       // 第 N 次违规开始禁言
+  'adMuteSeconds',         // 首次禁言时长（秒，之后翻倍）
+  'adKickThreshold',       // 第 N 次违规踢出群聊并拉黑（0=关闭）
 ];
+
+/** 数值字段（存数字，空串表示沿用环境变量） */
+const NUM_FIELDS = ['adMuteThreshold', 'adMuteSeconds', 'adKickThreshold'];
 
 const DEFAULTS = {
   welcomeEnabled: true,
@@ -32,6 +40,10 @@ const DEFAULTS = {
   joinAutoRejectBlacklist: true,
   joinNotice: '',
   joinRejectReason: '',
+  adAction: '',
+  adMuteThreshold: '',
+  adMuteSeconds: '',
+  adKickThreshold: '',
 };
 
 export async function onRequest(context) {
@@ -45,7 +57,17 @@ export async function onRequest(context) {
 
   if (method === 'GET') {
     const item = await loadSettings(g.kv);
-    return ok({ item: { id: 'welcome', ...DEFAULTS, ...item } });
+    // effective：当前环境变量层面的生效值，供后台展示「留空时的默认」
+    const cfg = loadConfig(env);
+    return ok({
+      item: { id: 'welcome', ...DEFAULTS, ...item },
+      effective: {
+        adAction: cfg.AD_ACTION,
+        adMuteThreshold: cfg.AD_MUTE_THRESHOLD,
+        adMuteSeconds: cfg.AD_MUTE_SECONDS,
+        adKickThreshold: cfg.AD_KICK_THRESHOLD,
+      },
+    });
   }
 
   if (method !== 'PUT' && method !== 'POST') return fail('method not allowed', 405);
@@ -57,6 +79,15 @@ export async function onRequest(context) {
   const patch = {};
   for (const k of ALLOW_FIELDS) {
     if (body[k] === undefined) continue;
+    if (NUM_FIELDS.includes(k)) {
+      const raw = String(body[k]).trim();
+      // 空串 = 清除该字段，回退到环境变量
+      if (!raw) { patch[k] = ''; continue; }
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) return fail(`${k} 应为非负数字`, 400);
+      patch[k] = n;
+      continue;
+    }
     patch[k] = typeof DEFAULTS[k] === 'boolean' ? !!body[k] : String(body[k]).slice(0, 2000);
   }
   if (!Object.keys(patch).length) return fail('没有可保存的字段', 400);

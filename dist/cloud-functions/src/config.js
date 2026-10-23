@@ -37,6 +37,7 @@ export function loadConfig(env = {}) {
     AD_MUTE_SECONDS: num(env.AD_MUTE_SECONDS, 600),       // 命中后禁言时长
     AD_MUTE_THRESHOLD: num(env.AD_MUTE_THRESHOLD, 3),     // 第 N 次违规才禁言
     AD_MUTE_MAX_SECONDS: num(env.AD_MUTE_MAX_SECONDS, 86400),
+    AD_KICK_THRESHOLD: num(env.AD_KICK_THRESHOLD, 4),     // 第 N 次违规踢出群聊并拉黑（0=关闭）
     AD_KEYWORDS: list(env.AD_KEYWORDS),                   // 额外关键词
     AD_REGEX: list(env.AD_REGEX),                          // 额外正则
 

@@ -274,7 +274,7 @@ const VIEWS = [
   { key: 'members', label: '成员管理' },
   { key: 'violations', label: '违规记录' },
   { key: 'rules', label: '广告规则' },
-  { key: 'settings', label: '欢迎词设置' },
+  { key: 'settings', label: '群设置' },
   { key: 'joinrequests', label: '入群申请' },
   { key: 'admins', label: '管理员与权限' },
   { key: 'logs', label: '操作日志' },
@@ -841,7 +841,7 @@ async function renderJoinRequests() {
       <div style="padding:18px;line-height:1.9;font-size:13px;color:var(--muted)">
         <p>· 只有当<b>机器人是群管理员</b>时，平台才会推送入群申请事件 <code>GROUP_JOIN_REQUEST</code>（需在开放平台勾选「入群申请」）。</p>
         <p>· 「拒绝并拉黑」会调用平台审批接口同时写入群黑名单，可真正阻止该账号再次申请；普通「拒绝」仅本次拒绝。</p>
-        <p>· 自动策略在「欢迎词设置」里配置：黑名单自动拒绝（默认开）、自动通过（默认关）。</p>
+        <p>· 自动策略在「群设置」里配置：黑名单自动拒绝（默认开）、自动通过（默认关）。</p>
       </div>
     </div>`;
 
@@ -891,32 +891,56 @@ async function renderJoinRequests() {
   }));
 }
 
-/* ================= 欢迎词设置 ================= */
-const SETTINGS_FIELDS = [
-  { key: 'welcomeEnabled', type: 'bool', label: '迎宾 / 送别总开关' },
-  { key: 'memberWelcome', type: 'text', label: '新成员进群欢迎词' },
-  { key: 'botWelcome', type: 'text', label: '机器人进群欢迎词' },
-  { key: 'leaveNotice', type: 'text', label: '成员退群提示' },
-  { key: 'autoBlacklistOnLeave', type: 'bool', label: '成员退群自动拉黑' },
-  { key: 'joinRequestEnabled', type: 'bool', label: '处理入群申请（GROUP_JOIN_REQUEST）' },
-  { key: 'joinAutoRejectBlacklist', type: 'bool', label: '黑名单申请人自动拒绝并拉黑' },
-  { key: 'joinAutoApprove', type: 'bool', label: '入群申请自动通过（风险账号除外）' },
-  { key: 'joinNotice', type: 'text', label: '入群申请群内通知（支持 {name} {source} {time} {tips}）' },
-  { key: 'joinRejectReason', type: 'text', label: '自动拒绝理由' },
+/* ================= 群设置（迎宾/违规处置/入群申请） ================= */
+const SETTINGS_SECTIONS = [
+  {
+    title: '迎宾 / 送别',
+    fields: [
+      { key: 'welcomeEnabled', type: 'bool', label: '迎宾 / 送别总开关' },
+      { key: 'memberWelcome', type: 'text', label: '新成员进群欢迎词' },
+      { key: 'botWelcome', type: 'text', label: '机器人进群欢迎词' },
+      { key: 'leaveNotice', type: 'text', label: '成员退群提示' },
+      { key: 'autoBlacklistOnLeave', type: 'bool', label: '成员退群自动拉黑' },
+    ],
+  },
+  {
+    title: '违规处置（广告 / 违规消息）',
+    fields: [
+      {
+        key: 'adAction', type: 'select', label: '处置力度',
+        options: [['delete_mute', '撤回消息 + 禁言'], ['delete', '仅撤回消息'], ['warn', '仅警告']],
+      },
+      { key: 'adMuteThreshold', type: 'num', label: '第 N 次违规开始禁言', hint: '留空 = 环境变量默认 3 次' },
+      { key: 'adMuteSeconds', type: 'num', label: '首次禁言时长（秒，之后逐次翻倍）', hint: '留空 = 环境变量默认 600 秒（10 分钟）' },
+      { key: 'adKickThreshold', type: 'num', label: '第 N 次违规踢出群聊并拉黑（0 = 关闭）', hint: '留空 = 环境变量默认 4 次' },
+    ],
+  },
+  {
+    title: '入群申请',
+    fields: [
+      { key: 'joinRequestEnabled', type: 'bool', label: '处理入群申请（GROUP_JOIN_REQUEST）' },
+      { key: 'joinAutoRejectBlacklist', type: 'bool', label: '黑名单申请人自动拒绝并拉黑' },
+      { key: 'joinAutoApprove', type: 'bool', label: '入群申请自动通过（风险账号除外）' },
+      { key: 'joinNotice', type: 'text', label: '入群申请群内通知（支持 {name} {source} {time} {tips}）' },
+      { key: 'joinRejectReason', type: 'text', label: '自动拒绝理由' },
+    ],
+  },
 ];
 
 async function renderSettings() {
   const root = $('#view-settings');
-  root.innerHTML = '<div class="panel"><div class="head">欢迎词设置</div>'
+  root.innerHTML = '<div class="panel"><div class="head">群设置</div>'
     + '<div style="padding:18px" class="empty">加载中…</div></div>';
 
   let item = {};
+  let effective = {};
   try {
     const r = await api('/api/admin/settings');
     if (!r.data.ok) throw new Error(r.data.error || '读取失败');
     item = r.data.item || {};
+    effective = r.data.effective || {};
   } catch (e) {
-    root.innerHTML = '<div class="panel"><div class="head">欢迎词设置</div>'
+    root.innerHTML = '<div class="panel"><div class="head">群设置</div>'
       + '<div style="padding:18px" class="empty">读取失败：' + esc(e.message) + '</div></div>';
     return;
   }
@@ -930,36 +954,61 @@ async function renderSettings() {
         + '<option value="false"' + (on ? '' : ' selected') + '>关闭</option>'
         + '</select></div>';
     }
+    if (f.type === 'select') {
+      const cur = String(item[f.key] ?? '');
+      return '<div class="field">' + label + '<select data-set="' + f.key + '">'
+        + f.options.map((o) => '<option value="' + o[0] + '"'
+          + (cur === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('')
+        + '</select></div>';
+    }
+    if (f.type === 'num') {
+      const cur = effective[f.key];
+      const tip = (cur !== undefined && cur !== '' && cur !== null)
+        ? '<div class="hint" style="margin-top:6px">当前生效：' + esc(String(cur)) + '（环境变量）</div>'
+        : '';
+      return '<div class="field">' + label
+        + '<input type="number" min="0" step="1" data-set="' + f.key + '"'
+        + ' value="' + esc(item[f.key] ?? '') + '" placeholder="' + esc(f.hint || '') + '">'
+        + tip + '</div>';
+    }
     return '<div class="field">' + label
       + '<textarea data-set="' + f.key + '" rows="3" style="resize:vertical"'
       + ' placeholder="留空则使用内置默认文案">' + esc(item[f.key] ?? '') + '</textarea></div>';
   };
 
   root.innerHTML =
-    '<div class="panel" style="margin-bottom:18px">'
-    + '<div class="head">欢迎词设置</div>'
-    + '<div style="padding:18px">'
-    + SETTINGS_FIELDS.map(renderField).join('')
-    + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
-    + '<button class="primary" id="setSave">保存设置</button>'
-    + '<button id="setReset">清空文案（用内置默认）</button>'
-    + '</div></div></div>'
+    SETTINGS_SECTIONS.map((sec) =>
+      '<div class="panel" style="margin-bottom:18px">'
+      + '<div class="head">' + esc(sec.title) + '</div>'
+      + '<div style="padding:18px">' + sec.fields.map(renderField).join('')
+      + (sec.title.indexOf('违规处置') === 0
+        ? '<div style="display:flex;gap:10px;flex-wrap:wrap">'
+          + '<button class="primary" id="setSave">保存设置</button>'
+          + '<button id="setReset">恢复默认（清空文案与数值）</button>'
+          + '</div>'
+        : '')
+      + '</div></div>').join('')
     + '<div class="panel"><div class="head">说明</div>'
     + '<div style="padding:18px;line-height:1.9;font-size:13px;color:var(--muted)">'
     + '<p>· 文案留空 = 使用内置默认；「群管理」里可给单个群设置专属欢迎词/退群提示，优先于这里。</p>'
+    + '<p>· <b>违规阶梯（默认）</b>：第 1–2 次仅警告；第 3 次起撤回并禁言（10 分钟起，逐次翻倍）；第 4 次踢出群聊并拉黑。警告文案为 <code>@昵称 ⚠️ 你发送的内容违反群规（第 N 次），禁言 X 分钟，请遵守群规！</code></p>'
+    + '<p>· 踢人接口属平台内邀能力，未开通时踢出会失败并写 <code>kick_failed</code> 日志，机器人会同步写入<b>本地黑名单</b>（其后续发言一律忽略），请管理员手动移出。</p>'
     + '<p>· 新成员进群欢迎依赖平台事件 <code>GROUP_MEMBER_ADD</code>，需在 QQ 开放平台「事件订阅」勾选「群成员加入」；退群提示同理需勾选「群成员退出」。</p>'
     + '<p>· <b>排障技巧</b>：事件一到就会写操作日志（动作 <code>member_join</code> / <code>member_leave</code> / <code>join_request</code>）。如果日志里没有对应记录，说明平台没推送事件（订阅未勾选）；如果有记录但群里没消息，看 <code>send_failed</code> 记录里的平台错误码。</p>'
-    + '<p>· 入群申请 <code>GROUP_JOIN_REQUEST</code> 只在<b>机器人是群管理员</b>时才会推送；黑名单申请可在「入群申请」里一键拒绝并写入群黑名单，这是真正阻止重新入群的方式。</p>'
-    + '<p>· 群机器人出站消息不支持 @ 第三人，文案为纯文本群消息。</p>'
-    + '<p>· 退群自动拉黑：成员退出后 openid 进入机器人黑名单，之后发言一律忽略；平台无入群拦截接口，无法阻止其重新入群（重新入群会提示管理员）。</p>'
+    + '<p>· 入群申请 <code>GROUP_JOIN_REQUEST</code> 只在<b>机器人是群管理员</b>时才会推送；黑名单申请可在「入群申请」里一键拒绝并写入群黑名单。</p>'
+    + '<p>· 群机器人出站消息不支持 @ 第三人，警告文案里的 <code>@昵称</code> 为纯文本（不产生真实提醒），但消息同时是对该成员消息的引用回复。</p>'
     + '</div></div>';
 
   $('#setSave').addEventListener('click', async () => {
+    // 按字段类型分别取值：bool 提交真布尔、num 提交数字字符串（空串=回退环境变量）、枚举/文本提交原文
     const payload = {};
-    $$('[data-set]', root).forEach((el) => {
-      const v = el.value;
-      payload[el.dataset.set] = el.tagName === 'SELECT' ? v === 'true' : v;
-    });
+    SETTINGS_SECTIONS.forEach((sec) => sec.fields.forEach((f) => {
+      const el = $('[data-set="' + f.key + '"]', root);
+      if (!el) return;
+      if (f.type === 'bool') payload[f.key] = el.value === 'true';
+      else if (f.type === 'num') payload[f.key] = String(el.value || '').trim();
+      else payload[f.key] = el.value;
+    }));
     try {
       const r = await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify(payload) });
       if (!r.data.ok) { toast(r.data.error || '保存失败', true); return; }
@@ -971,7 +1020,8 @@ async function renderSettings() {
 
   $('#setReset').addEventListener('click', () => {
     $$('textarea[data-set]', root).forEach((el) => { el.value = ''; });
-    toast('已清空文案，记得点「保存设置」');
+    $$('input[type=number][data-set]', root).forEach((el) => { el.value = ''; });
+    toast('已清空文案与数值，记得点「保存设置」');
   });
 }
 
