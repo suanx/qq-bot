@@ -183,15 +183,16 @@ async function handleAdminCommand(evt, ctx, cfg, kv) {
       ? '🚫 已加入群黑名单'
       : '🚫 已加入机器人黑名单（平台官方接口未开放，机器人将无视其全部消息）';
   }
-  // 退群登记：群内发退群提示（真 @ 本人）并加入黑名单。
+  // 退群登记：群内发退群提示并加入黑名单。
   // 平台无「成员退群」事件（群聊体系仅推送机器人自身被移出），无法自动感知，
   // 由管理员手动触发；黑名单后该成员若再入群发言，机器人一律静默忽略。
+  // 注：群机器人出站消息不支持 @ 第三人（嵌入标签原样显示，平台硬边界），
+  // 被动回复只会自动 @ 被回复者（此处是发指令的管理员），故退群提示用纯文本。
   if (/^\/?退群/.test(text)) {
     if (!target) return '用法：/退群 @某人（发送退群提示并加入黑名单）';
     await touchMember(kv, groupOpenid, target, { status: 'blacklisted' });
     return [
-      // 群聊 @ 新协议：<qqbot-at-user id="openid" />（旧 <@openid> 在群聊已不渲染）
-      `👋 <qqbot-at-user id="${target}" /> 已退出群聊。`,
+      '👋 有成员已退出群聊。',
       '该成员已加入机器人黑名单，其后续消息将被忽略；',
       '为防止其再次入群，请管理员使用群管理功能将其移出。',
     ].join('\n');
@@ -265,10 +266,10 @@ async function handleAdViolation(evt, ctx, cfg, kv) {
 
   if (count >= 10) console.warn(`[moderation] ${groupOpenid}/${user} 违规已达 ${count} 次，建议人工处理`);
 
-  // 警告文案：群聊 @ 用官方新协议 <qqbot-at-user id="openid" /> 渲染为真实 @ 提及
-  // （实测旧协议 <@openid> 在群聊出站消息中不渲染，客户端原样显示标签文本）
+  // 警告文案：本回复是引用违规消息的被动回复，客户端会自动在开头 @ 违规者
+  // （平台硬边界：群机器人出站消息不支持 @ 第三人，嵌入标签会原样显示，故不写 @ 标签）
   const actionText = actions.length ? `，${actions.join('、')}` : (level >= 1 ? '，消息将被撤回' : '');
-  return `⚠️ <qqbot-at-user id="${user}" /> 你发送的内容违反群规（命中规则：${ctx.adHit.rule}，第 ${count} 次）${actionText}，请遵守群规！`;
+  return `⚠️ 你发送的内容违反群规（命中规则：${ctx.adHit.rule}，第 ${count} 次）${actionText}，请遵守群规！`;
 }
 
 /* ---------------- AI 对话 ---------------- */
