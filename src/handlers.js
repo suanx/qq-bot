@@ -373,6 +373,14 @@ export async function handleMessage(evt, rawEnv) {
     const r = await handleAdminCommand(evt, ctx, cfg, kv);
     if (r) return { ...ctx, content: r };
   }
+  // 1b) 明确是管理指令语法（以 / 开头）但无权限：给出显式反馈而非静默落入 AI 聊天
+  //     （不带 / 的中文关键词如「踢足球」不提示，避免误伤普通聊天）
+  else if (isAdminCommand(ctx.text) && /^\//.test(ctx.text.trim())) {
+    return {
+      ...ctx,
+      content: '⛔ 该指令仅群管理员可用。若你应是管理员，请让群主在后台「管理员与权限」中登记你当前账号的 openid。',
+    };
+  }
 
   // 2) 广告过滤（仅群聊；管理员豁免）
   if (cfg.AD_FILTER_ENABLED && ctx.chatType === 'group'

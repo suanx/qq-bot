@@ -305,8 +305,13 @@ await t('/广告关 生效', async () => {
 await t('非管理员不能执行管理指令', async () => {
   const e = groupMsg('/广告关', 'NOT_ADMIN', 'G_ADMIN', 'M_A6');
   const r = await handleMessage(e, baseEnv);
-  // 非管理员不进入管理分支，且不以 / 开头走 AI（此处 AI 关闭）-> 无回复
-  assert.equal(r, null);
+  // 非管理员发显式 / 指令：不进入管理分支，且收到明确的无权限反馈（不再静默落入 AI）
+  assert.ok(r && r.content, '应有显式无权限回复');
+  assert.match(r.content, /仅群管理员可用/, `实际: ${r.content}`);
+  // 不带 / 的中文关键词不提示（避免误伤普通聊天，如「踢足球」）
+  const e2 = groupMsg('踢足球去', 'NOT_ADMIN', 'G_ADMIN', 'M_A6b');
+  const r2 = await handleMessage(e2, baseEnv);
+  assert.equal(r2, null);
 });
 
 console.log('\n[AD_ACTION 分级（修复项）]');
