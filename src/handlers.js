@@ -10,7 +10,7 @@ import { recordViolation, decideAction, clearViolations, getViolations } from '.
 import { replyMessage, recallGroupMessage, muteMember, kickMembers, blacklistMember } from './qqapi.js';
 import { createKV } from './kv.js';
 import {
-  touchGroup, touchMember, logViolation, bumpStat,
+  touchGroup, touchMember, logViolation, bumpStat, logAction,
   getGroupFlag, setGroupFlag, loadAdminOpenids, loadAdRules,
 } from './records.js';
 import * as ai from './ai.js';
@@ -179,6 +179,12 @@ async function handleAdminCommand(evt, ctx, cfg, kv) {
       console.warn('官方拉黑失败，回落本地黑名单:', e.message);
     }
     await touchMember(kv, groupOpenid, target, { status: 'blacklisted' });
+    await logAction(kv, {
+      actor: ctx.sender, actorRole: 'admin',
+      action: official ? 'blacklist' : 'blacklist_local',
+      target: `${groupOpenid}/${target}`,
+      detail: official ? '加入群黑名单（官方接口）' : '加入机器人黑名单（官方接口未开放，本地生效）',
+    });
     return official
       ? '🚫 已加入群黑名单'
       : '🚫 已加入机器人黑名单（平台官方接口未开放，机器人将无视其全部消息）';
@@ -191,6 +197,12 @@ async function handleAdminCommand(evt, ctx, cfg, kv) {
   if (/^\/?退群/.test(text)) {
     if (!target) return '用法：/退群 @某人（发送退群提示并加入黑名单）';
     await touchMember(kv, groupOpenid, target, { status: 'blacklisted' });
+    await logAction(kv, {
+      actor: ctx.sender, actorRole: 'admin',
+      action: 'leave_register',
+      target: `${groupOpenid}/${target}`,
+      detail: '退群登记：加入机器人黑名单',
+    });
     return [
       '👋 有成员已退出群聊。',
       '该成员已加入机器人黑名单，其后续消息将被忽略；',
@@ -236,9 +248,20 @@ async function handleAdViolation(evt, ctx, cfg, kv) {
     try {
       await muteMember(groupOpenid, user, muteSeconds, cfg);
       actions.push(`禁言 ${fmtDuration(muteSeconds)}`);
+      await logAction(kv, {
+        action: 'mute',
+        target: `${groupOpenid}/${user}`,
+        detail: `第${count}次违规禁言 ${fmtDuration(muteSeconds)}`,
+      });
   } catch (e) {
       console.warn('禁言失败:', e.message);
       actions.push('禁言失败（机器人需要群管理员身份）');
+      // 失败原因落日志，后台「操作日志」可直接查看（此前只 console.warn 生产不可见）
+      await logAction(kv, {
+        action: 'mute_failed',
+        target: `${groupOpenid}/${user}`,
+        detail: `第${count}次违规禁言失败：${e.message}`,
+      });
     }
   }
 

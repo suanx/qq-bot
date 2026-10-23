@@ -68,6 +68,18 @@ export async function logViolation(kv, data) {
   });
 }
 
+/** 写操作日志（机器人自动处置记录，后台「操作日志」可查） */
+export async function logAction(kv, data) {
+  const repo = createRepo(kv);
+  return repo.create(COLLECTIONS.LOGS, {
+    actor: data.actor || 'system',
+    actorRole: data.actorRole || 'bot',
+    action: data.action || '',
+    target: data.target || '',
+    detail: data.detail || '',
+  });
+}
+
 /** 统计计数自增（按天 + 累计） */
 export async function bumpStat(kv, name, delta = 1) {
   const day = beijingDay();

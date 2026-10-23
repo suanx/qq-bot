@@ -12,6 +12,8 @@ import { loadConfig } from './config.js';
 import { verifyRequest, loadPublicKey, derivePublicKey, signValidation } from './verify.js';
 import { handleMessage } from './handlers.js';
 import { replyMessage, recallGroupMessage } from './qqapi.js';
+import { createKV } from './kv.js';
+import { logAction } from './records.js';
 
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), {
@@ -37,10 +39,22 @@ async function dispatchEvent(evt, rawEnv) {
     );
     // 违规处置：警告回复成功后再撤回违规消息（保证被动回复引用的 msg_id 仍有效）
     if (plan.recallMsgId && plan.chatType === 'group') {
+      const kv = createKV(rawEnv);
       try {
         await recallGroupMessage(plan.targetId, plan.recallMsgId, loadConfig(rawEnv));
+        await logAction(kv, {
+          action: 'recall',
+          target: plan.targetId,
+          detail: '违规消息已撤回',
+        });
       } catch (e) {
         console.warn('违规消息撤回失败:', e.message);
+        // 失败原因落日志，后台「操作日志」可直接查看（此前只 console.warn 生产不可见）
+        await logAction(kv, {
+          action: 'recall_failed',
+          target: plan.targetId,
+          detail: `违规消息撤回失败：${e.message}（通常因机器人不是群管理员）`,
+        });
       }
     }
   } catch (e) {
