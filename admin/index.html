@@ -894,6 +894,15 @@ async function renderJoinRequests() {
 /* ================= 群设置（迎宾/违规处置/入群申请） ================= */
 const SETTINGS_SECTIONS = [
   {
+    title: 'AI 对话',
+    fields: [
+      {
+        key: 'aiChatEnabled', type: 'bool', label: 'AI 对话总开关',
+        hint: '关闭后群聊不再走大模型回复；广告拦截、管理指令、迎宾送别等其余功能全部照常',
+      },
+    ],
+  },
+  {
     title: '迎宾 / 送别',
     fields: [
       { key: 'welcomeEnabled', type: 'bool', label: '迎宾 / 送别总开关' },
@@ -952,7 +961,9 @@ async function renderSettings() {
       return '<div class="field">' + label + '<select data-set="' + f.key + '">'
         + '<option value="true"' + (on ? ' selected' : '') + '>开启</option>'
         + '<option value="false"' + (on ? '' : ' selected') + '>关闭</option>'
-        + '</select></div>';
+        + '</select>'
+        + (f.hint ? '<div class="hint" style="margin-top:6px">' + esc(f.hint) + '</div>' : '')
+        + '</div>';
     }
     if (f.type === 'select') {
       const cur = String(item[f.key] ?? '');
@@ -994,6 +1005,7 @@ async function renderSettings() {
     + '<p>· <b>违规阶梯（默认）</b>：第 1–2 次仅警告；第 3 次起撤回并禁言（10 分钟起，逐次翻倍）；第 4 次踢出群聊并拉黑。警告文案为 <code>@昵称 ⚠️ 你发送的内容违反群规（第 N 次），禁言 X 分钟，请遵守群规！</code></p>'
     + '<p>· 踢人接口属平台内邀能力，未开通时踢出会失败并写 <code>kick_failed</code> 日志，机器人会同步写入<b>本地黑名单</b>（其后续发言一律忽略），请管理员手动移出。</p>'
     + '<p>· 新成员进群欢迎依赖平台事件 <code>GROUP_MEMBER_ADD</code>，需在 QQ 开放平台「事件订阅」勾选「群成员加入」；退群提示同理需勾选「群成员退出」。</p>'
+    + '<p>· <b>AI 对话总开关</b>：关闭后群里发消息不再走大模型回复（<code>/AI开</code> 等群级开关也无效）；广告拦截、违规处置、管理指令、迎宾送别、入群申请<b>全部照常</b>。想恢复时回来切「开启」保存即可。</p>'
     + '<p>· <b>排障技巧</b>：事件一到就会写操作日志（动作 <code>member_join</code> / <code>member_leave</code> / <code>join_request</code>）。如果日志里没有对应记录，说明平台没推送事件（订阅未勾选）；如果有记录但群里没消息，看 <code>send_failed</code> 记录里的平台错误码。</p>'
     + '<p>· 入群申请 <code>GROUP_JOIN_REQUEST</code> 只在<b>机器人是群管理员</b>时才会推送；黑名单申请可在「入群申请」里一键拒绝并写入群黑名单。</p>'
     + '<p>· 群机器人出站消息不支持 @ 第三人，警告文案里的 <code>@昵称</code> 为纯文本（不产生真实提醒），但消息同时是对该成员消息的引用回复。</p>'

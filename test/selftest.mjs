@@ -760,6 +760,22 @@ await t('AI 正常回复并记住上下文', async () => {
   } finally { restore(); }
 });
 
+await t('后台关闭 AI 对话总开关后不回复，广告拦截与管理指令仍生效', async () => {
+  const restore = stubAI();
+  const kv = await createKV({});
+  try {
+    await saveSettings(kv, { aiChatEnabled: false });
+    const env = { ...baseEnv, AI_ENABLED: 'true', AI_API_KEY: 'k' };
+    const r = await handleMessage(groupMsg('你好呀', 'U_AIOFF', 'G_AIOFF', 'M_AIOFF_1'), env);
+    assert.equal(r, null, '总开关关闭时普通消息不应触发 AI 回复');
+    const ad = await handleMessage(groupMsg('加我vx: abcd1234', 'U_AIOFF', 'G_AIOFF', 'M_AIOFF_2'), env);
+    assert.ok(ad && /违反群规/.test(ad.content), `广告拦截应照常生效，实际: ${ad && ad.content}`);
+  } finally {
+    await saveSettings(kv, { aiChatEnabled: true }); // 还原，避免影响其他用例
+    restore();
+  }
+});
+
 await t('每分钟频控拦截第 3 次', async () => {
   const restore = stubAI();
   try {

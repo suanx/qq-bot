@@ -10,6 +10,7 @@ import { loadConfig } from '../../../src/config.js';
 
 /** 可写字段白名单 */
 const ALLOW_FIELDS = [
+  'aiChatEnabled',         // AI 对话总开关（关闭后保留广告拦截/管理指令/迎宾等其余功能）
   'welcomeEnabled',        // 迎宾/送别总开关
   'memberWelcome',         // 新成员进群欢迎词
   'botWelcome',            // 机器人进群欢迎词
@@ -30,6 +31,7 @@ const ALLOW_FIELDS = [
 const NUM_FIELDS = ['adMuteThreshold', 'adMuteSeconds', 'adKickThreshold'];
 
 const DEFAULTS = {
+  aiChatEnabled: true,
   welcomeEnabled: true,
   memberWelcome: '',
   botWelcome: '',
@@ -62,6 +64,7 @@ export async function onRequest(context) {
     return ok({
       item: { id: 'welcome', ...DEFAULTS, ...item },
       effective: {
+        aiChatEnabled: cfg.AI_ENABLED,
         adAction: cfg.AD_ACTION,
         adMuteThreshold: cfg.AD_MUTE_THRESHOLD,
         adMuteSeconds: cfg.AD_MUTE_SECONDS,

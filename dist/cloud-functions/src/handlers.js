@@ -695,8 +695,10 @@ export async function handleMessage(evt, rawEnv) {
     return { ...ctx, content: basic };
   }
 
-  // 4) AI 对话（带频控）
+  // 4) AI 对话（带频控；总开关三层：后台「群设置」> 环境变量 AI_ENABLED > 群级 /AI开·/AI关）
+  const gset = await loadSettings(kv).catch(() => ({}));
   if (cfg.AI_ENABLED && cfg.AI_API_KEY
+      && gset.aiChatEnabled !== false
       && await getGroupFlag(kv, ctx.targetId, 'ai', true)
       && shouldChat(ctx.text)) {
     // 成本护栏 1：每分钟频次
